@@ -340,7 +340,7 @@ class Plot2D(QMainWindow):
         data,
         *,
         x_field: str,
-        y_field: str,  # CHANGED: Single field instead of list
+        y_field: str,
         normalize: bool = False,
         center: bool = False,
         x_offset: float = 0.0,
@@ -360,6 +360,9 @@ class Plot2D(QMainWindow):
 
         This integrates with the array field management system, allowing
         dynamic enabling/disabling of fields via checkboxes.
+
+        Automatically creates a plot group for this array so additional fields
+        can be added to the same group.
 
         Args:
             data: Structured array (fields used by order: 1st=X, 2nd=Y, 3rd=color)
@@ -412,11 +415,20 @@ class Plot2D(QMainWindow):
                     f"Y field '{y_field}' not found in data. Available: {field_names}"
                 )
 
+            # Calculate global color range for auto-group creation
+            global_color_min = None
+            global_color_max = None
+            if color_field is not None and color_field in field_names:
+                color_data_for_range = data[color_field].astype(np.float32)
+                if len(color_data_for_range) > 0:
+                    global_color_min = float(color_data_for_range.min())
+                    global_color_max = float(color_data_for_range.max())
+
             # Register this array with the field manager
             array_index = self.array_field_integration.register_array(
                 data=data,
                 x_field=x_field,
-                y_field=y_field,  # CHANGED: Single field
+                y_field=y_field,
                 array_name=plot_name,
                 normalize=normalize,
                 center=center,
@@ -430,6 +442,8 @@ class Plot2D(QMainWindow):
                 visible=visible,
                 transform_params=transform_params,
                 color_field=color_field,
+                global_color_min=global_color_min,
+                global_color_max=global_color_max,
             )
 
             # Extract X and Y data
@@ -494,7 +508,9 @@ class Plot2D(QMainWindow):
                 visible=visible,
                 transform_params=result_transform_params,
                 plot_name=generated_name,
-                is_array_parent=True,  # CHANGED: Always True since one plot per call
+                is_array_parent=True,
+                global_color_min=global_color_min,
+                global_color_max=global_color_max,
             )
 
             # Register the field plot with array field manager
@@ -503,6 +519,35 @@ class Plot2D(QMainWindow):
                 y_field,
                 added_index,
             )
+
+            # AUTO-CREATE GROUP: Create a group for this array
+            from .PlotGroupContext import PlotGroupContext
+
+            group_id = PlotGroupContext.create_auto_group_for_array(
+                viewer=self,
+                array_index=array_index,
+                data=data,
+                x_field=x_field,
+                y_field=y_field,
+                color_field=color_field,
+                properties={
+                    "plot_name": plot_name,
+                    "normalize": normalize,
+                    "center": center,
+                    "x_offset": x_offset,
+                    "y_offset": y_offset,
+                    "colormap": colormap,
+                    "point_size": point_size,
+                    "draw_lines": draw_lines,
+                    "line_color": line_color,
+                    "line_width": line_width,
+                    "color_field": color_field,
+                    "transform_params": result_transform_params,
+                },
+            )
+
+            # Register the array-to-group mapping
+            self.array_field_integration.register_array_group(array_index, group_id)
 
             print(
                 f"[INFO] Plot {added_index} configured: {generated_name} ({len(transformed_points):,} points)"
@@ -533,7 +578,12 @@ class Plot2D(QMainWindow):
             # Update field visibility checkboxes for the new array
             self.array_field_integration.visibility_row.set_current_array(array_index)
 
-            return result_transform_params  # CHANGED: Always return dict, never list
+            # Update field scale inputs for the new array
+            if self.array_field_integration.scale_row:
+                self.array_field_integration.scale_row.set_current_array(array_index)
+                print(f"[DEBUG] Scale row updated for array {array_index}")
+
+            return result_transform_params
 
         except Exception as e:
             print(f"[ERROR] Failed to add plot: {e}")
@@ -780,7 +830,7 @@ class Plot2D(QMainWindow):
                 )
 
     def _setup_ui(self):
-        """Setup the UI layout with 5 rows including array field visibility."""
+        """Setup the UI layout with 6 rows including array field visibility and scale factors."""
         central = QWidget()
         main_layout = QVBoxLayout()
         main_layout.setContentsMargins(
@@ -798,11 +848,19 @@ class Plot2D(QMainWindow):
         # Create field visibility widget
         field_visibility_widget = None
         if hasattr(self, "array_field_integration") and self.array_field_integration:
-            field_visibility_widget = self.array_field_integration.create_widget()
+            field_visibility_widget = (
+                self.array_field_integration.create_visibility_widget()
+            )
 
-        # Create 5-row controls with field visibility
-        controls_widget = self.control_bar_manager.create_five_row_controls(
-            field_visibility_widget=field_visibility_widget
+        # Create field scale widget
+        field_scale_widget = None
+        if hasattr(self, "array_field_integration") and self.array_field_integration:
+            field_scale_widget = self.array_field_integration.create_scale_widget()
+
+        # Create 6-row controls with field visibility and scale factors
+        controls_widget = self.control_bar_manager.create_six_row_controls(
+            field_visibility_widget=field_visibility_widget,
+            field_scale_widget=field_scale_widget,
         )
 
         main_layout.addWidget(controls_widget)

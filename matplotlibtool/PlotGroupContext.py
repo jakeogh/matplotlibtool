@@ -339,3 +339,72 @@ class PlotGroupContext:
         )
 
         return plot_index
+
+    @staticmethod
+    def create_auto_group_for_array(
+        viewer: Plot2D,
+        array_index: int,
+        data: np.ndarray,
+        x_field: str,
+        y_field: str,
+        color_field: str | None,
+        properties: dict,
+    ) -> int:
+        """
+        Create an automatic plot group for a single array added via add_plot().
+
+        This is used when add_plot() is called outside of a plot_group() context
+        to automatically group all fields from the same array together.
+
+        Args:
+            viewer: Reference to the Plot2D viewer
+            array_index: Index of the registered array
+            data: The structured numpy array
+            x_field: X-axis field name
+            y_field: Initially plotted Y field
+            color_field: Field used for coloring (or None)
+            properties: Plot properties dict
+
+        Returns:
+            group_id of the created group
+        """
+        # Calculate global color range if we have a color field
+        global_color_min = None
+        global_color_max = None
+
+        if color_field is not None and color_field in data.dtype.names:
+            color_data = data[color_field].astype(np.float32)
+            if len(color_data) > 0:
+                global_color_min = float(color_data.min())
+                global_color_max = float(color_data.max())
+
+        # Get array name from properties or generate one
+        array_name = properties.get("plot_name")
+        if not array_name:
+            # Generate auto name based on array index
+            group_count = len(viewer.plot_manager.plot_groups)
+            array_name = f"Array {group_count + 1}"
+
+        # The plot has already been added, so we need to find its plot_index
+        # It should be the most recently added plot
+        plot_index = len(viewer.plot_manager.plots) - 1
+
+        # Register the group with just this one plot initially
+        group_id = viewer.plot_manager.register_plot_group(
+            group_name=array_name,
+            plot_indices=[plot_index],
+            color_field=(
+                color_field if color_field else y_field
+            ),  # Use color_field if provided, else y_field
+            color_range=(
+                (global_color_min, global_color_max)
+                if global_color_min is not None
+                else (0.0, 1.0)
+            ),
+        )
+
+        print(
+            f"[INFO] Auto-created plot group '{array_name}' (group_id={group_id}) for array {array_index}"
+        )
+
+        return group_id

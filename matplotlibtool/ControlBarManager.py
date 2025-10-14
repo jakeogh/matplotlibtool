@@ -1275,3 +1275,117 @@ class ControlBarManager:
             y_spin.setSpecialValueText("Mixed")
             y_spin.setValue(y_spin.minimum())
             y_spin.blockSignals(False)
+
+
+    def create_six_row_controls(
+        self,
+        field_visibility_widget=None,
+        field_scale_widget=None
+    ) -> QWidget:
+        """
+        Create the complete six-row control layout including array field visibility and scale factors.
+
+        Args:
+            field_visibility_widget: Optional pre-created field visibility widget
+            field_scale_widget: Optional pre-created field scale widget
+
+        Returns:
+            Widget containing all control rows
+        """
+        # Main container
+        controls_widget = QWidget(self.parent)
+        main_layout = QVBoxLayout(controls_widget)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+
+        # Create each row
+        row1 = self._create_row1()
+        row2 = self._create_row2()
+        row3 = self._create_row3()
+        row4 = self._create_secondary_axis_row()
+
+        # Row 5: Array field visibility
+        if field_visibility_widget:
+            row5 = field_visibility_widget
+        else:
+            # Placeholder if widget not provided yet
+            row5 = QWidget()
+            row5_layout = QHBoxLayout(row5)
+            row5_layout.setContentsMargins(8, 4, 8, 4)
+            row5_layout.addWidget(QLabel("Show Fields: (no arrays loaded)"))
+            row5_layout.addStretch()
+
+        # Row 6: Array field scale factors
+        if field_scale_widget:
+            row6 = field_scale_widget
+        else:
+            # Placeholder if widget not provided yet
+            row6 = QWidget()
+            row6_layout = QHBoxLayout(row6)
+            row6_layout.setContentsMargins(8, 4, 8, 4)
+            row6_layout.addWidget(QLabel("Scale Factors: (no arrays loaded)"))
+            row6_layout.addStretch()
+
+        # Add rows to main layout
+        main_layout.addWidget(row1)
+        main_layout.addWidget(row2)
+        main_layout.addWidget(row3)
+        main_layout.addWidget(row4)
+        main_layout.addWidget(row5)
+        main_layout.addWidget(row6)
+
+        # Store layouts
+        self.layouts["main"] = main_layout
+        self.layouts["row1"] = row1.layout()
+        self.layouts["row2"] = row2.layout()
+        self.layouts["row3"] = row3.layout()
+        self.layouts["row4"] = row4.layout()
+        if hasattr(row5, "layout") and row5.layout():
+            self.layouts["row5"] = row5.layout()
+        if hasattr(row6, "layout") and row6.layout():
+            self.layouts["row6"] = row6.layout()
+
+        # Store references to field widgets for later updates
+        self.widgets["field_visibility_row"] = row5
+        self.widgets["field_scale_row"] = row6
+
+        return controls_widget
+
+
+    def update_field_scale_row(self, field_scale_widget) -> None:
+        """
+        Update the field scale row widget after initial creation.
+
+        This allows the viewer to inject the proper widget after ArrayFieldManager
+        is initialized.
+
+        Args:
+            field_scale_widget: The field scale widget to use
+        """
+        if "field_scale_row" in self.widgets:
+            old_widget = self.widgets["field_scale_row"]
+
+            # Find the widget in the main layout
+            main_layout = self.layouts.get("main")
+            if main_layout:
+                # Get the index of the old widget
+                for i in range(main_layout.count()):
+                    if main_layout.itemAt(i).widget() == old_widget:
+                        # Remove old widget
+                        main_layout.takeAt(i)
+                        old_widget.deleteLater()
+
+                        # Insert new widget at same position
+                        main_layout.insertWidget(i, field_scale_widget)
+
+                        # Update stored reference
+                        self.widgets["field_scale_row"] = field_scale_widget
+
+                        if (
+                            hasattr(field_scale_widget, "layout")
+                            and field_scale_widget.layout()
+                        ):
+                            self.layouts["row6"] = field_scale_widget.layout()
+
+                        print("[INFO] Field scale row widget updated")
+                        break
