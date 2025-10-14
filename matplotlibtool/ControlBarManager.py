@@ -10,6 +10,7 @@ from typing import List
 from typing import Optional
 
 from PyQt6.QtCore import QObject
+from PyQt6.QtCore import Qt
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import QCheckBox
 from PyQt6.QtWidgets import QComboBox
@@ -43,6 +44,7 @@ class ControlBarSignals(QObject):
     # Rendering controls
     accelChanged = pyqtSignal(float)
     sizeChanged = pyqtSignal(float)
+    lineWidthChanged = pyqtSignal(float)
     linesToggled = pyqtSignal(bool)
     paletteChanged = pyqtSignal(str)
     darkModeToggled = pyqtSignal(bool)
@@ -214,14 +216,7 @@ class ControlBarManager:
         """
         print(f"[DEBUG] populate_hierarchical_dropdown() called")
 
-        # Try direct access instead of .get()
         combo = self.widgets["plot_combo"]
-        print(f"[DEBUG] combo widget: {combo}")
-        print(f"[DEBUG] combo type: {type(combo)}")
-        print(f"[DEBUG] combo is None: {combo is None}")
-        print(f"[DEBUG] bool(combo): {bool(combo)}")
-
-        # Don't check truthiness, just check if it's None
         if combo is None:
             print(f"[DEBUG] combo widget is None!")
             return
@@ -230,6 +225,11 @@ class ControlBarManager:
 
         # Block signals during rebuild
         combo.blockSignals(True)
+
+        # CRITICAL FIX: Store old selection BEFORE clearing
+        old_selection_data = combo.currentData()
+
+        # Clear the combo box completely
         combo.clear()
 
         print(f"[DEBUG] Combo cleared, getting groups...")
@@ -238,7 +238,13 @@ class ControlBarManager:
         current_selection_type = None
         current_selection_id = None
 
-        if plot_manager.is_group_selected():
+        # Try to restore from old selection data first
+        if old_selection_data is not None and len(old_selection_data) == 2:
+            current_selection_type, current_selection_id = old_selection_data
+            print(
+                f"[DEBUG] Restored selection from data: {current_selection_type} {current_selection_id}"
+            )
+        elif plot_manager.is_group_selected():
             current_selection_type = "group"
             current_selection_id = plot_manager.selected_group_id
             print(f"[DEBUG] Current selection: group {current_selection_id}")
@@ -282,63 +288,6 @@ class ControlBarManager:
                 selection_index = current_index
 
             current_index += 1
-
-            # Add plots in this group (indented)
-            for plot_index in group_info.plot_indices:
-                plot_info = plot_manager.get_plot_info(plot_index)
-                if plot_info:
-                    plot_label = f"   ├─ {plot_info.name}"
-                    combo.addItem(plot_label)
-                    combo.setItemData(current_index, ("plot", plot_index))
-                    print(
-                        f"[DEBUG]   Added plot at index {current_index}: {plot_label}"
-                    )
-
-                    # Check if this plot should be selected
-                    if (
-                        current_selection_type == "plot"
-                        and current_selection_id == plot_index
-                    ):
-                        selection_index = current_index
-
-                    current_index += 1
-
-        # Add ungrouped plots
-        ungrouped_plots = []
-        for i in range(plot_manager.get_plot_count()):
-            if i not in grouped_plot_indices:
-                ungrouped_plots.append(i)
-
-        if ungrouped_plots:
-            for plot_index in ungrouped_plots:
-                plot_info = plot_manager.get_plot_info(plot_index)
-                if plot_info:
-                    combo.addItem(plot_info.name)
-                    combo.setItemData(current_index, ("plot", plot_index))
-
-                    # Check if this plot should be selected
-                    if (
-                        current_selection_type == "plot"
-                        and current_selection_id == plot_index
-                    ):
-                        selection_index = current_index
-
-                    current_index += 1
-
-        # If no items, add placeholder
-        if combo.count() == 0:
-            combo.addItem("No plots")
-            combo.setItemData(0, None)
-
-        # Restore selection
-        combo.setCurrentIndex(selection_index)
-
-        # Unblock signals
-        combo.blockSignals(False)
-
-        print(
-            f"[DEBUG] Populated hierarchical dropdown: {combo.count()} items, selected index {selection_index}"
-        )
 
     def _create_row1(self) -> QWidget:
         """Create first control row: Add, Plot/Group selector, Visible, Accel, Size, Lines, Palette, Color Field."""
@@ -398,6 +347,20 @@ class ControlBarManager:
         )
         layout.addWidget(size_spin)
         self.widgets["size_spin"] = size_spin
+
+        # Line Width - NEW
+        layout.addWidget(QLabel("Line Width:"))
+        line_width_spin = QDoubleSpinBox()
+        line_width_spin.setRange(0.1, 10.0)
+        line_width_spin.setSingleStep(0.1)
+        line_width_spin.setDecimals(2)
+        line_width_spin.setMaximumWidth(80)
+        line_width_spin.setKeyboardTracking(False)
+        line_width_spin.editingFinished.connect(
+            lambda: self.signals.lineWidthChanged.emit(line_width_spin.value())
+        )
+        layout.addWidget(line_width_spin)
+        self.widgets["line_width_spin"] = line_width_spin
 
         # Lines
         lines_chk = QCheckBox("Lines")
@@ -612,26 +575,17 @@ class ControlBarManager:
         for widget in bounds_widgets:
             layout.addWidget(widget)
 
-        # Apply View button
-        apply_view_btn = QPushButton("Apply View")
-        apply_view_btn.setMaximumWidth(90)
-        apply_view_btn.clicked.connect(self.signals.applyViewRequested.emit)
-        apply_view_btn.setToolTip("Apply custom view bounds")
-        layout.addWidget(apply_view_btn)
-        self.widgets["apply_view_btn"] = apply_view_btn
+        # REMOVED: Apply View button - now triggered by Enter key in view bound fields
 
-        # Apply Offset button
-        apply_offset_btn = QPushButton("Apply Offset")
-        apply_offset_btn.setMaximumWidth(100)
-        apply_offset_btn.clicked.connect(self.signals.applyOffsetRequested.emit)
-        apply_offset_btn.setToolTip("Apply offset values to selected plot")
-        layout.addWidget(apply_offset_btn)
-        self.widgets["apply_offset_btn"] = apply_offset_btn
+        # Offset label
+        layout.addWidget(QLabel("Offset"))
 
         # Offset controls
         offset_widgets = self._create_offset_controls()
         for widget in offset_widgets:
             layout.addWidget(widget)
+
+        # REMOVED: Apply Offset button - now triggered by Enter key in offset fields
 
         layout.addStretch()
         return row
@@ -730,6 +684,9 @@ class ControlBarManager:
         xmin_edit = QLineEdit()
         xmin_edit.setMaximumWidth(80)
         xmin_edit.setPlaceholderText("auto")
+        xmin_edit.returnPressed.connect(
+            self.signals.applyViewRequested.emit
+        )  # NEW: Enter key handler
         widgets.append(xmin_edit)
         self.widgets["xmin_edit"] = xmin_edit
 
@@ -737,6 +694,9 @@ class ControlBarManager:
         xmax_edit = QLineEdit()
         xmax_edit.setMaximumWidth(80)
         xmax_edit.setPlaceholderText("auto")
+        xmax_edit.returnPressed.connect(
+            self.signals.applyViewRequested.emit
+        )  # NEW: Enter key handler
         widgets.append(xmax_edit)
         self.widgets["xmax_edit"] = xmax_edit
 
@@ -745,6 +705,9 @@ class ControlBarManager:
         ymin_edit = QLineEdit()
         ymin_edit.setMaximumWidth(80)
         ymin_edit.setPlaceholderText("auto")
+        ymin_edit.returnPressed.connect(
+            self.signals.applyViewRequested.emit
+        )  # NEW: Enter key handler
         widgets.append(ymin_edit)
         self.widgets["ymin_edit"] = ymin_edit
 
@@ -752,6 +715,9 @@ class ControlBarManager:
         ymax_edit = QLineEdit()
         ymax_edit.setMaximumWidth(80)
         ymax_edit.setPlaceholderText("auto")
+        ymax_edit.returnPressed.connect(
+            self.signals.applyViewRequested.emit
+        )  # NEW: Enter key handler
         widgets.append(ymax_edit)
         self.widgets["ymax_edit"] = ymax_edit
 
@@ -768,6 +734,12 @@ class ControlBarManager:
         offset_x_spin.setDecimals(6)
         offset_x_spin.setSingleStep(0.1)
         offset_x_spin.setMaximumWidth(100)
+        offset_x_spin.setKeyboardTracking(
+            False
+        )  # NEW: Prevents signal on every keystroke
+        offset_x_spin.editingFinished.connect(
+            self.signals.applyOffsetRequested.emit
+        )  # NEW: Enter key handler
         widgets.append(offset_x_spin)
         self.widgets["offset_x_spin"] = offset_x_spin
 
@@ -778,6 +750,12 @@ class ControlBarManager:
         offset_y_spin.setDecimals(6)
         offset_y_spin.setSingleStep(0.1)
         offset_y_spin.setMaximumWidth(100)
+        offset_y_spin.setKeyboardTracking(
+            False
+        )  # NEW: Prevents signal on every keystroke
+        offset_y_spin.editingFinished.connect(
+            self.signals.applyOffsetRequested.emit
+        )  # NEW: Enter key handler
         widgets.append(offset_y_spin)
         self.widgets["offset_y_spin"] = offset_y_spin
 
@@ -1473,3 +1451,20 @@ class ControlBarManager:
 
                         print("[INFO] Field scale row widget updated")
                         break
+
+    def set_line_width(self, width: float):
+        """Set line width spinbox value."""
+        spin = self.widgets.get("line_width_spin")
+        if spin:
+            spin.blockSignals(True)
+            spin.setValue(width)
+            spin.blockSignals(False)
+
+    def set_line_width_mixed(self):
+        """Set line width to mixed state."""
+        spin = self.widgets.get("line_width_spin")
+        if spin:
+            spin.blockSignals(True)
+            spin.setSpecialValueText("Mixed")
+            spin.setValue(spin.minimum())
+            spin.blockSignals(False)

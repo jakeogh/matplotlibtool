@@ -265,6 +265,8 @@ class Plot2DInteractions:
 
     def on_mouse_move(self, event):
         """Handle mouse motion for panning."""
+        # REMOVED: hover handling (now done via direct canvas connection in Plot2D)
+
         if not self._panning:
             return
 
@@ -342,6 +344,13 @@ class Plot2DInteractions:
         self.viewer.rect_selector.set_active(True)
 
     def on_matplotlib_key_press(self, event):
+        """Handle matplotlib key press events."""
+        # Toggle point hover with 'H' key
+        if event.key == "h" or event.key == "H":
+            if hasattr(self.viewer, "point_hover"):
+                self.viewer.point_hover.toggle()
+            return
+
         if event.key == "q" or event.key == "escape":
             print(f"[INFO] '{event.key}' pressed, closing viewer.")
             from PyQt6.QtWidgets import QApplication

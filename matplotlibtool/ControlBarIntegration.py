@@ -56,6 +56,7 @@ class ControlBarIntegration:
             # Rendering controls
             "accelChanged": self.viewer.event_handlers.on_acceleration_changed,
             "sizeChanged": self.viewer.event_handlers.on_point_size_changed,
+            "lineWidthChanged": self.viewer.event_handlers.on_line_width_changed,
             "linesToggled": self.viewer.event_handlers.on_lines_toggled,
             "paletteChanged": self.viewer.event_handlers.on_palette_changed,
             "colorFieldChanged": self.viewer.event_handlers.on_color_field_changed,
@@ -126,6 +127,12 @@ class ControlBarIntegration:
             manager.set_point_size_mixed()
         else:
             manager.set_point_size(props["size"])
+
+        # Handle line width (numeric or "mixed")
+        if props.get("line_width") == "mixed":
+            manager.set_line_width_mixed()
+        elif "line_width" in props:
+            manager.set_line_width(props["line_width"])
 
         # Handle lines checkbox (bool or "mixed")
         if props["draw_lines"] == "mixed":

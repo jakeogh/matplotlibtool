@@ -118,6 +118,25 @@ class PlotEventHandlers:
             value,
         )
 
+    def on_line_width_changed(self, value: float) -> None:
+        """Handle line width change for selected plot(s) or group."""
+        if self.viewer.plot_manager.is_group_selected():
+            # Apply to all plots in group
+            group_id = self.viewer.plot_manager.selected_group_id
+            self.viewer.plot_manager.set_group_property(
+                group_id,
+                "line_width",
+                value,
+            )
+        else:
+            # Apply to single plot
+            plot_index = self.viewer.plot_manager.selected_plot_index
+            self.viewer.plot_manager.set_plot_property(
+                plot_index,
+                "line_width",
+                value,
+            )
+
     def on_lines_toggled(self, checked: bool) -> None:
         """Handle lines toggle for selected plot."""
         plot_index = self.viewer.plot_manager.selected_plot_index

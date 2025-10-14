@@ -45,6 +45,7 @@ from .Plot2DRenderer import Matplotlib2DRenderer
 from .PlotEventHandlers import PlotEventHandlers
 from .PlotGroupContext import PlotGroupContext
 from .PlotManager import PlotManager
+from .PointHover import PointHoverManager
 from .utils import KeyboardInputManager
 from .utils import get_bounds_2d
 from .ViewManager import ViewManager
@@ -143,6 +144,50 @@ class Plot2D(QMainWindow):
             self.fig = Figure(facecolor="black")
 
         self.canvas = FigureCanvas(self.fig)
+
+        self.canvas.setMouseTracking(True)
+        print("[DEBUG] Mouse tracking enabled on canvas")
+
+        # Test if matplotlib is receiving events at all
+        def _debug_any_event(name):
+            """Create a debug wrapper for any matplotlib event"""
+
+            def wrapper(event):
+                print(f"[MPL-{name}] Event received!")
+                if hasattr(event, "x") and hasattr(event, "y"):
+                    print(f"[MPL-{name}]   Position: x={event.x}, y={event.y}")
+                if hasattr(event, "xdata") and hasattr(event, "ydata"):
+                    print(
+                        f"[MPL-{name}]   Data coords: x={event.xdata}, y={event.ydata}"
+                    )
+
+            return wrapper
+
+        # Connect test handlers for various events
+        self.canvas.mpl_connect("motion_notify_event", _debug_any_event("motion"))
+        self.canvas.mpl_connect("button_press_event", _debug_any_event("press"))
+        self.canvas.mpl_connect("button_release_event", _debug_any_event("release"))
+        print("[DEBUG] Test matplotlib event handlers connected")
+
+        # Also test at the Qt level
+        original_mouseMoveEvent = self.canvas.mouseMoveEvent
+
+        def debug_qt_mouse_move(qt_event):
+            print(
+                f"[QT] mouseMoveEvent: pos=({qt_event.pos().x()}, {qt_event.pos().y()})"
+            )
+            result = original_mouseMoveEvent(qt_event)
+            print(f"[QT] mouseMoveEvent returned: {result}")
+            return result
+
+        self.canvas.mouseMoveEvent = debug_qt_mouse_move
+        print("[DEBUG] Qt mouse move debug wrapper installed")
+
+        # Print final state
+        print(f"[DEBUG] Canvas hasMouseTracking: {self.canvas.hasMouseTracking()}")
+        print(f"[DEBUG] Canvas isEnabled: {self.canvas.isEnabled()}")
+        print(f"[DEBUG] Canvas parent: {self.canvas.parent()}")
+
         self.ax = self.fig.add_subplot(111)
 
         # Adjusted margins
@@ -186,6 +231,10 @@ class Plot2D(QMainWindow):
             self.state,
         )
 
+        # Point hover manager (for identifying points with mouse)
+        self.point_hover = PointHoverManager(self, self.ax, self.canvas)
+        print("[INFO] Point hover initialized - press 'H' to toggle")
+
         # Set initial view bounds
         if (
             xmin is not None
@@ -225,7 +274,7 @@ class Plot2D(QMainWindow):
             minspany=5,
             spancoords="pixels",
             interactive=False,
-            ignore_event_outside=True,
+            ignore_event_outside=False,  # CHANGED: Allow events outside to reach our handlers
             state_modifier_keys={
                 "move": "",
                 "clear": "",
@@ -236,6 +285,13 @@ class Plot2D(QMainWindow):
 
         # Start with selector enabled (it will be disabled during panning)
         self.rect_selector.set_active(True)
+
+        # CRITICAL: Connect hover DIRECTLY to canvas motion events
+        # This bypasses the RectangleSelector interception issue
+        self._hover_connection = self.canvas.mpl_connect(
+            "motion_notify_event", self._on_hover_motion_wrapper
+        )
+        print("[INFO] Point hover motion handler connected directly to canvas")
 
         # FINALLY: Connect keyboard and scroll events
         self.canvas.mpl_connect(
@@ -305,6 +361,24 @@ class Plot2D(QMainWindow):
                 f"[INFO] Image will be rendered to: {render_image} after setup completes"
             )
 
+    def _on_hover_motion_wrapper(self, event):
+        """
+        Wrapper to call hover manager without interfering with panning.
+        This is connected directly to canvas motion events.
+
+        Args:
+            event: Matplotlib motion event
+        """
+
+        # ADD CRITICAL DEBUG
+        print(f"[WRAPPER] _on_hover_motion_wrapper called!")
+        print(f"[WRAPPER]   panning={self.interactions._panning}")
+        print(f"[WRAPPER]   hover enabled={self.point_hover.enabled}")
+
+        # Only process if not panning
+        if not self.interactions._panning:
+            self.point_hover.on_hover_motion(event)
+
     def plot_group(
         self,
         color_field: str,
@@ -346,7 +420,7 @@ class Plot2D(QMainWindow):
         x_offset: float = 0.0,
         y_offset: float = 0.0,
         colormap: str = "turbo",
-        point_size: float = 2.0,
+        point_size: float = 0.2,
         draw_lines: bool = False,
         line_color: str | None = None,
         line_width: float = 1.0,
@@ -1054,6 +1128,12 @@ class Plot2D(QMainWindow):
         """Handle key press events."""
         key_name = event.text().upper() if event.text() else None
         has_shift = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+
+        # Handle 'H' key for point hover toggle - NEW
+        if key_name == "H":
+            if hasattr(self, "point_hover"):
+                self.point_hover.toggle()
+            return  # Don't pass to other handlers
 
         if key_name and key_name in ["X", "Y", "Z"]:
             self.keyboard_manager.add_key_with_repeat_check(key_name, has_shift)
