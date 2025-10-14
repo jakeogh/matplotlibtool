@@ -46,6 +46,7 @@ class ControlBarSignals(QObject):
     linesToggled = pyqtSignal(bool)
     paletteChanged = pyqtSignal(str)
     darkModeToggled = pyqtSignal(bool)
+    colorFieldChanged = pyqtSignal(str)
 
     # Grid controls
     gridSpacingChanged = pyqtSignal(str)
@@ -340,7 +341,7 @@ class ControlBarManager:
         )
 
     def _create_row1(self) -> QWidget:
-        """Create first control row: Add, Plot/Group selector, Visible, Accel, Size, Lines, Palette."""
+        """Create first control row: Add, Plot/Group selector, Visible, Accel, Size, Lines, Palette, Color Field."""
         row = QWidget()
         layout = QHBoxLayout(row)
         layout.setContentsMargins(
@@ -361,7 +362,7 @@ class ControlBarManager:
         # Plot/Group hierarchical selector
         layout.addWidget(QLabel("Plot/Group:"))
         plot_combo = QComboBox()
-        plot_combo.setMaximumWidth(300)  # Wider to accommodate hierarchy
+        plot_combo.setMaximumWidth(300)
         plot_combo.currentIndexChanged.connect(self._on_plot_group_selection_changed)
         layout.addWidget(plot_combo)
         self.widgets["plot_combo"] = plot_combo
@@ -391,7 +392,6 @@ class ControlBarManager:
         size_spin.setSingleStep(0.1)
         size_spin.setDecimals(3)
         size_spin.setMaximumWidth(80)
-        # CHANGED: Disable keyboard tracking and use editingFinished instead of valueChanged
         size_spin.setKeyboardTracking(False)
         size_spin.editingFinished.connect(
             lambda: self.signals.sizeChanged.emit(size_spin.value())
@@ -407,7 +407,7 @@ class ControlBarManager:
 
         # Dark Mode
         dark_mode_chk = QCheckBox("Dark")
-        dark_mode_chk.setChecked(True)  # Default to dark mode
+        dark_mode_chk.setChecked(True)
         dark_mode_chk.toggled.connect(self.signals.darkModeToggled.emit)
         layout.addWidget(dark_mode_chk)
         self.widgets["dark_mode_chk"] = dark_mode_chk
@@ -422,8 +422,79 @@ class ControlBarManager:
         layout.addWidget(palette_combo)
         self.widgets["palette_combo"] = palette_combo
 
+        # NEW: Color Field selector
+        layout.addWidget(QLabel("Color:"))
+        color_field_combo = QComboBox()
+        color_field_combo.setMaximumWidth(120)
+        color_field_combo.currentTextChanged.connect(self._on_color_field_changed)
+        layout.addWidget(color_field_combo)
+        self.widgets["color_field_combo"] = color_field_combo
+
         layout.addStretch()
         return row
+
+    def _on_color_field_changed(self, field_name: str):
+        """Handle color field selection change."""
+        if field_name and not field_name.startswith("───"):
+            self.signals.colorFieldChanged.emit(field_name)
+
+    def populate_color_field_combo(
+        self,
+        field_names: list[str],
+        current_field: str | None = None,
+    ):
+        """
+        Populate the color field dropdown with available fields.
+
+        Args:
+            field_names: List of field names available for coloring
+            current_field: Currently selected color field (or None)
+        """
+        combo = self.widgets.get("color_field_combo")
+
+        if combo is None:  # FIXED: Use 'is None' instead of 'if not combo'
+            print("[DEBUG] color_field_combo widget not found!")
+            return
+
+        combo.blockSignals(True)
+        combo.clear()
+
+        if not field_names:
+            combo.addItem("(No fields)")
+            combo.setEnabled(False)
+        else:
+            for field in field_names:
+                combo.addItem(field)
+
+            # Select the current field if specified
+            if current_field and current_field in field_names:
+                idx = combo.findText(current_field)
+                if idx >= 0:
+                    combo.setCurrentIndex(idx)
+
+            combo.setEnabled(True)
+
+        combo.blockSignals(False)
+
+    def set_color_field(self, field_name: str | None):
+        """
+        Set the selected color field in the dropdown.
+
+        Args:
+            field_name: Name of the field to select, or None
+        """
+        combo = self.widgets.get("color_field_combo")
+        if not combo:
+            return
+
+        combo.blockSignals(True)
+
+        if field_name:
+            idx = combo.findText(field_name)
+            if idx >= 0:
+                combo.setCurrentIndex(idx)
+
+        combo.blockSignals(False)
 
     def _on_plot_group_selection_changed(self, index: int):
         """Handle hierarchical plot/group selection changes."""
@@ -1276,11 +1347,10 @@ class ControlBarManager:
             y_spin.setValue(y_spin.minimum())
             y_spin.blockSignals(False)
 
-
     def create_six_row_controls(
         self,
         field_visibility_widget=None,
-        field_scale_widget=None
+        field_scale_widget=None,
     ) -> QWidget:
         """
         Create the complete six-row control layout including array field visibility and scale factors.
@@ -1295,7 +1365,12 @@ class ControlBarManager:
         # Main container
         controls_widget = QWidget(self.parent)
         main_layout = QVBoxLayout(controls_widget)
-        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setContentsMargins(
+            0,
+            0,
+            0,
+            0,
+        )
         main_layout.setSpacing(0)
 
         # Create each row
@@ -1311,7 +1386,12 @@ class ControlBarManager:
             # Placeholder if widget not provided yet
             row5 = QWidget()
             row5_layout = QHBoxLayout(row5)
-            row5_layout.setContentsMargins(8, 4, 8, 4)
+            row5_layout.setContentsMargins(
+                8,
+                4,
+                8,
+                4,
+            )
             row5_layout.addWidget(QLabel("Show Fields: (no arrays loaded)"))
             row5_layout.addStretch()
 
@@ -1322,7 +1402,12 @@ class ControlBarManager:
             # Placeholder if widget not provided yet
             row6 = QWidget()
             row6_layout = QHBoxLayout(row6)
-            row6_layout.setContentsMargins(8, 4, 8, 4)
+            row6_layout.setContentsMargins(
+                8,
+                4,
+                8,
+                4,
+            )
             row6_layout.addWidget(QLabel("Scale Factors: (no arrays loaded)"))
             row6_layout.addStretch()
 
@@ -1350,7 +1435,6 @@ class ControlBarManager:
         self.widgets["field_scale_row"] = row6
 
         return controls_widget
-
 
     def update_field_scale_row(self, field_scale_widget) -> None:
         """

@@ -488,3 +488,144 @@ class PlotEventHandlers:
                     print(
                         f"[INFO] Applied offset to plot {plot_index + 1}: ({x_offset:.3f}, {y_offset:.3f})"
                     )
+
+    def on_color_field_changed(self, field_name: str) -> None:
+        """
+        Handle color field change for selected plot(s) or group.
+
+        Args:
+            field_name: Name of the field to use for coloring
+        """
+        with self.viewer.busy_manager.busy_operation(
+            f"Changing color field to {field_name}"
+        ):
+            # Get selected plot indices (single plot or all plots in group)
+            if self.viewer.plot_manager.is_group_selected():
+                group_id = self.viewer.plot_manager.selected_group_id
+                group_info = self.viewer.plot_manager.get_group_info(group_id)
+                if not group_info:
+                    return
+                plot_indices = group_info.plot_indices
+                print(
+                    f"[INFO] Changing color field to '{field_name}' for group {group_id} ({len(plot_indices)} plots)"
+                )
+            else:
+                plot_indices = [self.viewer.plot_manager.selected_plot_index]
+                print(
+                    f"[INFO] Changing color field to '{field_name}' for plot {plot_indices[0]}"
+                )
+
+            # First pass: Calculate global color range across all plots if in a group
+            global_color_min = None
+            global_color_max = None
+
+            if self.viewer.plot_manager.is_group_selected():
+                # For groups, calculate global range across all plots
+                for plot_index in plot_indices:
+                    array_index = (
+                        self.viewer.array_field_integration._get_array_index_for_plot(
+                            plot_index
+                        )
+                    )
+                    if array_index is None:
+                        continue
+
+                    array_info = self.viewer.array_field_integration.array_field_manager.get_array_info(
+                        array_index
+                    )
+                    if not array_info:
+                        continue
+
+                    data = array_info["data"]
+                    if field_name not in data.dtype.names:
+                        continue
+
+                    field_data = data[field_name].astype(np.float32)
+                    if len(field_data) > 0:
+                        local_min = float(field_data.min())
+                        local_max = float(field_data.max())
+
+                        if global_color_min is None:
+                            global_color_min = local_min
+                            global_color_max = local_max
+                        else:
+                            global_color_min = min(global_color_min, local_min)
+                            global_color_max = max(global_color_max, local_max)
+
+                print(
+                    f"[INFO] Calculated global color range for group: [{global_color_min:.3f}, {global_color_max:.3f}]"
+                )
+
+            # Second pass: Update each plot
+            for plot_index in plot_indices:
+                # Find the array that owns this plot
+                array_index = (
+                    self.viewer.array_field_integration._get_array_index_for_plot(
+                        plot_index
+                    )
+                )
+
+                if array_index is None:
+                    print(f"[WARNING] Could not find array for plot {plot_index}")
+                    continue
+
+                # Get array info
+                array_info = self.viewer.array_field_integration.array_field_manager.get_array_info(
+                    array_index
+                )
+                if not array_info:
+                    print(f"[WARNING] Could not get array info for array {array_index}")
+                    continue
+
+                data = array_info["data"]
+
+                # Validate field exists
+                if field_name not in data.dtype.names:
+                    print(
+                        f"[ERROR] Field '{field_name}' not found in array {array_index}"
+                    )
+                    continue
+
+                # Extract new color data
+                new_color_data = data[field_name].astype(np.float32)
+
+                # Update the plot's color data
+                plot = self.viewer.plot_manager.plots[plot_index]
+                plot.color_data = new_color_data
+
+                # Update the array properties to remember this color field
+                array_info["properties"]["color_field"] = field_name
+
+                # Update global color range for this plot
+                if global_color_min is not None and global_color_max is not None:
+                    # Store in plot manager's global color range mapping
+                    self.viewer.plot_manager.plot_global_color_ranges[plot_index] = (
+                        global_color_min,
+                        global_color_max,
+                    )
+                    # Also store in array properties
+                    array_info["properties"]["global_color_min"] = global_color_min
+                    array_info["properties"]["global_color_max"] = global_color_max
+                    print(
+                        f"[INFO] Updated plot {plot_index} with global color range: [{global_color_min:.3f}, {global_color_max:.3f}]"
+                    )
+                else:
+                    # For individual plots, use local range (will be calculated in _update_plot)
+                    if plot_index in self.viewer.plot_manager.plot_global_color_ranges:
+                        del self.viewer.plot_manager.plot_global_color_ranges[
+                            plot_index
+                        ]
+                    array_info["properties"].pop("global_color_min", None)
+                    array_info["properties"].pop("global_color_max", None)
+
+                print(
+                    f"[INFO] Updated plot {plot_index} to use color field '{field_name}'"
+                )
+
+            # Force update and redraw
+            self.viewer._update_plot()
+            self.viewer.canvas.draw_idle()
+
+            print(
+                f"[INFO] Color field changed to '{field_name}' for {len(plot_indices)} plot(s)"
+            )

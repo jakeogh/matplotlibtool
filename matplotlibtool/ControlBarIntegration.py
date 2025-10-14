@@ -8,6 +8,7 @@ This module handles the integration between the control bar UI and the viewer,
 including signal connections, control synchronization, and state updates.
 
 UPDATED: Works with new PlotManager (no primary/overlay distinction)
+UPDATED: Added color field dropdown integration
 """
 
 from __future__ import annotations
@@ -29,6 +30,7 @@ class ControlBarIntegration:
     - Control state synchronization
     - Plot selector updates
     - View bounds display updates
+    - Color field dropdown synchronization
     """
 
     def __init__(self, viewer: PointCloud2DViewerMatplotlib):
@@ -49,13 +51,14 @@ class ControlBarIntegration:
             "saveFigureRequested": self.viewer.event_handlers.on_save_figure,
             # Plot selection and properties
             "plotChanged": self.viewer.event_handlers.on_plot_selection_changed,
-            "groupSelectionChanged": self.viewer.event_handlers.on_group_selection_changed,  # NEW
+            "groupSelectionChanged": self.viewer.event_handlers.on_group_selection_changed,
             "visibilityToggled": self.viewer.event_handlers.on_visibility_toggled,
             # Rendering controls
             "accelChanged": self.viewer.event_handlers.on_acceleration_changed,
             "sizeChanged": self.viewer.event_handlers.on_point_size_changed,
             "linesToggled": self.viewer.event_handlers.on_lines_toggled,
             "paletteChanged": self.viewer.event_handlers.on_palette_changed,
+            "colorFieldChanged": self.viewer.event_handlers.on_color_field_changed,
             "darkModeToggled": self.viewer.event_handlers.on_dark_mode_toggled,
             # Grid controls
             "gridSpacingChanged": self.viewer.event_handlers.on_grid_changed,
@@ -78,6 +81,19 @@ class ControlBarIntegration:
 
     def sync_controls_to_selection(self) -> None:
         """Synchronize control values to currently selected plot(s) or group."""
+        print("[DEBUG] sync_controls_to_selection() called")
+
+        if not self._has_control_bar():
+            print("[DEBUG] No control bar, returning")
+            return
+
+        props = self.viewer.plot_manager.get_selected_plot_properties()
+        print(f"[DEBUG] props: {props}")
+
+        if not props:
+            print("[DEBUG] No props, returning")
+            return
+
         if not self._has_control_bar():
             return
 
@@ -90,6 +106,9 @@ class ControlBarIntegration:
 
         # Sync grid colors
         self._sync_grid_colors()
+
+        # Sync color field dropdown
+        self._sync_color_field_dropdown()
 
         # Sync secondary axis state
         if hasattr(self.viewer, "secondary_axis"):
@@ -134,6 +153,64 @@ class ControlBarIntegration:
             manager.set_visibility_tristate()
         else:
             manager.set_visibility_checked(props["visible"])
+
+    def _sync_color_field_dropdown(self) -> None:
+        """Synchronize color field dropdown with current selection."""
+        print("[DEBUG] _sync_color_field_dropdown() called")
+
+        if not self._has_control_bar():
+            print("[DEBUG] No control bar")
+            return
+
+        # Check if we have a single plot selected or group
+        if self.viewer.plot_manager.is_group_selected():
+            group_id = self.viewer.plot_manager.selected_group_id
+            group_info = self.viewer.plot_manager.get_group_info(group_id)
+            if not group_info or not group_info.plot_indices:
+                print("[DEBUG] No group info or plot indices")
+                return
+
+            # Use the first plot in the group to get field names
+            plot_index = group_info.plot_indices[0]
+            print(f"[DEBUG] Group selected, using plot {plot_index}")
+        else:
+            plot_index = self.viewer.plot_manager.selected_plot_index
+            print(f"[DEBUG] Individual plot selected: {plot_index}")
+
+        # Get the array index for this plot to find available fields
+        array_index = self.viewer.array_field_integration._get_array_index_for_plot(
+            plot_index
+        )
+        print(f"[DEBUG] array_index: {array_index}")
+
+        if (
+            array_index is not None
+            and self.viewer.array_field_integration.array_field_manager
+        ):
+            array_info = (
+                self.viewer.array_field_integration.array_field_manager.get_array_info(
+                    array_index
+                )
+            )
+            if array_info:
+                data = array_info["data"]
+                field_names = list(data.dtype.names)
+
+                # Get current color field from plot properties
+                current_color_field = array_info["properties"].get("color_field")
+
+                print(f"[DEBUG] field_names: {field_names}")
+                print(f"[DEBUG] current_color_field: {current_color_field}")
+
+                # Populate the dropdown
+                self.viewer.control_bar_manager.populate_color_field_combo(
+                    field_names, current_color_field
+                )
+                return
+
+        print("[DEBUG] No valid selection - clearing dropdown")
+        # No valid selection - clear dropdown
+        self.viewer.control_bar_manager.populate_color_field_combo([], None)
 
     def refresh_plot_selector(self) -> None:
         """Update plot selector combobox with current arrays and groups."""
