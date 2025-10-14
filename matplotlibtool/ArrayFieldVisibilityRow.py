@@ -123,7 +123,6 @@ class ArrayFieldVisibilityRow:
         """
         Rebuild all checkboxes based on current array's fields.
         """
-        # Clear existing checkboxes
         self._clear_checkboxes()
 
         if self.current_array_index is None:
@@ -147,7 +146,6 @@ class ArrayFieldVisibilityRow:
 
         # Create checkbox for each field
         for field_name in fields:
-            # Check if this field is currently plotted
             is_plotted = self.array_field_manager.is_field_active(
                 self.current_array_index, field_name
             )
@@ -168,12 +166,11 @@ class ArrayFieldVisibilityRow:
 
             # Add to layout (before the stretch)
             self.checkbox_layout.insertWidget(
-                self.checkbox_layout.count() - 1, checkbox  # Before stretch
+                self.checkbox_layout.count() - 1, checkbox
             )
 
     def _clear_checkboxes(self) -> None:
         """Remove all existing checkboxes from the layout."""
-        # Remove and delete all checkbox widgets
         for checkbox in self.checkboxes.values():
             self.checkbox_layout.removeWidget(checkbox)
             checkbox.deleteLater()

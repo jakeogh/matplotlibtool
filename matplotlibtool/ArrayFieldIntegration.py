@@ -165,7 +165,6 @@ class ArrayFieldIntegration:
             group_id: ID of the group it belongs to
         """
         self.array_to_group[array_index] = group_id
-        print(f"[DEBUG] Registered array {array_index} to group {group_id}")
 
     def get_array_group_id(self, array_index: int) -> int | None:
         """
@@ -194,10 +193,8 @@ class ArrayFieldIntegration:
             checked: New checked state
         """
         if checked:
-            # Add the field plot
             self._add_field_plot(array_index, field_name)
         else:
-            # Remove the field plot
             self._remove_field_plot(array_index, field_name)
 
     def on_scale_changed(

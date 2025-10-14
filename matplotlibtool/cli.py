@@ -13,7 +13,6 @@ from clicktool import click_add_options
 from clicktool import click_global_options
 from clicktool import tvicgvd
 from configtool import get_config_directory
-from eprint import eprint
 from globalverbose import gvd
 from PyQt6.QtWidgets import QApplication  # pylint: disable=E0611
 

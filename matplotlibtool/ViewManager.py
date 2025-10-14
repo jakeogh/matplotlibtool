@@ -4,9 +4,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List
-from typing import Optional
-from typing import Tuple
 
 import numpy as np
 from matplotlib.axes import Axes

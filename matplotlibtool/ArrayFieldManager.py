@@ -37,12 +37,10 @@ class ArrayFieldManager:
         """
         self.plot_manager = plot_manager
 
-        # Array tracking
-        # array_index -> {'data': structured_array, 'x_field': str, 'name': str, 'properties': dict}
+        # Array tracking: array_index -> {'data': structured_array, 'x_field': str, 'name': str, 'properties': dict}
         self.arrays: dict[int, dict] = {}
 
-        # Field tracking
-        # array_index -> {field_name: plot_index or None}
+        # Field tracking: array_index -> {field_name: plot_index or None}
         self.array_fields: dict[int, dict[str, int | None]] = {}
 
         # Reverse mapping: plot_index -> (array_index, field_name)
@@ -85,11 +83,6 @@ class ArrayFieldManager:
         # Initialize field tracking for all fields in the array
         field_names = [f for f in data.dtype.names if f != x_field]
         self.array_fields[array_index] = {field: None for field in field_names}
-
-        # Mark the initially plotted field (will be populated when plot is created)
-        if y_field in self.array_fields[array_index]:
-            # Will be populated via register_field_plot()
-            pass
 
         return array_index
 

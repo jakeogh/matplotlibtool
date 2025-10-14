@@ -57,7 +57,7 @@ class ArrayFieldScaleRow:
         # Track scale input widgets by field name
         self.scale_inputs: dict[str, QDoubleSpinBox] = {}
 
-        # Track current scale factors (field_name -> scale_factor)
+        # Track current scale factors: field_name -> scale_factor
         self.current_scales: dict[str, float] = {}
 
         # Currently displayed array
@@ -156,10 +156,9 @@ class ArrayFieldScaleRow:
 
         # Create scale input for each field
         for field_name in fields:
-            # Get current scale factor (default 1.0)
             current_scale = self.current_scales.get(field_name, 1.0)
 
-            # Create a container widget for label + spinbox
+            # Create container for label + spinbox
             field_container = QWidget()
             field_layout = QHBoxLayout(field_container)
             field_layout.setContentsMargins(
@@ -168,9 +167,9 @@ class ArrayFieldScaleRow:
                 0,
                 0,
             )
-            field_layout.setSpacing(2)  # Tight spacing between label and spinbox
+            field_layout.setSpacing(2)
 
-            # Create label - NO FIXED WIDTH, let it size naturally
+            # Create label
             label = QLabel(f"{field_name}:")
             field_layout.addWidget(label)
 

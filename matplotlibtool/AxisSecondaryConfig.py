@@ -6,7 +6,6 @@ Enhanced Secondary Axis Configuration with pint unit handling
 This module provides configuration for secondary axes with automatic
 unit scaling using the pint library for proper unit conversion.
 """
-# pylint: disable=no-name-in-module
 
 from __future__ import annotations
 
@@ -32,7 +31,7 @@ class AxisSecondaryConfig:
     label: str = "Secondary Axis"
     unit: str = ""
     enable_auto_scale: bool = True
-    axis_type: AxisType = AxisType.Y  # Default to Y-axis for backward compatibility
+    axis_type: AxisType = AxisType.Y
 
     def __post_init__(self):
         """Initialize pint quantity if unit is specified."""
@@ -49,7 +48,7 @@ class AxisSecondaryConfig:
             "hz": "hertz",
             "s": "second",
             "S": "second",
-            "t": "second",  # Time alias
+            "t": "second",
             "ms": "millisecond",
             "us": "microsecond",
             "µs": "microsecond",
@@ -60,13 +59,7 @@ class AxisSecondaryConfig:
         pint_unit = unit_map.get(self.unit, self.unit.lower())
 
         if pint_unit:
-            try:
-                # Verify the unit is valid
-                self._base_unit = getattr(self._ureg, pint_unit)
-                print(f"[DEBUG] Unit '{self.unit}' mapped to pint unit '{pint_unit}'")
-            except AttributeError:
-                print(f"Warning: Unknown unit '{pint_unit}', disabling auto-scale")
-                self.enable_auto_scale = False
+            self._base_unit = getattr(self._ureg, pint_unit)
 
     @classmethod
     def from_range_mapping(
@@ -121,7 +114,6 @@ class AxisSecondaryConfig:
             data_min: Minimum data value (default 0 for sample indices)
             axis_type: Which axis to configure (default X)
         """
-        # Each sample represents 1/frequency seconds
         time_per_sample = 1.0 / frequency
 
         return cls(
@@ -150,10 +142,7 @@ class AxisSecondaryConfig:
             where conversion_factor is the multiplier from base to display units
         """
         if not self.enable_auto_scale or not self._base_unit:
-            print(f"[DEBUG] Auto-scale disabled or no base unit. Returning raw values.")
             return value_min, value_max, self.unit, 1.0
-
-        # print(f"[DEBUG] get_display_values: min={value_min}, max={value_max}")
 
         # Create pint quantities
         q_min = value_min * self._base_unit
@@ -170,8 +159,6 @@ class AxisSecondaryConfig:
         # Get the compact unit
         compact_unit = q_compact.units
 
-        # print(f"[DEBUG] Reference value {max_abs} → {q_compact} (unit: {compact_unit})")
-
         # Convert both min and max to the same compact unit
         q_min_scaled = q_min.to(compact_unit)
         q_max_scaled = q_max.to(compact_unit)
@@ -180,14 +167,8 @@ class AxisSecondaryConfig:
         conversion_factor = q_compact.magnitude / max_abs if max_abs != 0 else 1.0
 
         # Format the unit string nicely
-        unit_str = format(compact_unit, "~")  # Use short form (µV instead of microvolt)
+        unit_str = format(compact_unit, "~")
 
-        # print(
-        #    f"[DEBUG] Scaled range: {q_min_scaled.magnitude:.3f} to {q_max_scaled.magnitude:.3f} {unit_str}"
-        # )
-        # print(f"[DEBUG] Conversion factor: {conversion_factor}")
-
-        # Return magnitudes, unit string, and conversion factor
         return (
             q_min_scaled.magnitude,
             q_max_scaled.magnitude,

@@ -17,7 +17,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from typing import Optional
 
-# Import only AxisSecondaryConfig, not VoltageProfile
 from .AxisSecondaryConfig import AxisSecondaryConfig
 
 if TYPE_CHECKING:
@@ -97,7 +96,6 @@ class AxisSecondaryIntegration:
         self.viewer._update_plot()
         self.viewer.canvas.draw_idle()
 
-        # Log the configuration with auto-scale status
         if enable_auto_scale:
             print(
                 f"[INFO] Secondary axis configured with automatic unit scaling: {label} ({unit})"
@@ -116,7 +114,7 @@ class AxisSecondaryIntegration:
         """
         if not enabled:
             self.viewer.view_manager.disable_secondary_axis()
-            self.viewer._update_plot()  # Redraw to remove secondary axis
+            self.viewer._update_plot()
             self.viewer.canvas.draw_idle()
             print("[INFO] Secondary Y-axis disabled")
         else:
@@ -127,7 +125,6 @@ class AxisSecondaryIntegration:
             ):
                 widgets = self.viewer.control_bar_manager.secondary_axis_widgets
 
-                # Check if we have valid values to auto-apply
                 try:
                     primary_min = widgets["primary_min"].text().strip()
                     primary_max = widgets["primary_max"].text().strip()
@@ -139,7 +136,6 @@ class AxisSecondaryIntegration:
                     if all(
                         [primary_min, primary_max, secondary_min, secondary_max, label]
                     ):
-                        # Auto-apply the configuration with auto-scaling enabled by default
                         config = AxisSecondaryConfig.from_range_mapping(
                             primary_min=float(primary_min),
                             primary_max=float(primary_max),
@@ -147,11 +143,11 @@ class AxisSecondaryIntegration:
                             secondary_max=float(secondary_max),
                             label=label,
                             unit=unit,
-                            enable_auto_scale=True,  # Enable auto-scaling by default
+                            enable_auto_scale=True,
                         )
 
                         self.viewer.view_manager.configure_secondary_axis(config)
-                        self.viewer._update_plot()  # Redraw with secondary axis
+                        self.viewer._update_plot()
                         self.viewer.canvas.draw_idle()
                         print(
                             f"[INFO] Secondary Y-axis auto-configured with auto-scaling: {label} ({unit})"
@@ -256,38 +252,3 @@ class AxisSecondaryIntegration:
             True if secondary axis is enabled, False otherwise
         """
         return self.viewer.view_manager.is_secondary_axis_enabled()
-
-    # def get_config(self) -> AxisSecondaryConfig | None:
-    #    """
-    #    Get current secondary axis configuration.
-
-    #    Returns:
-    #        AxisSecondaryConfig object or None if not configured
-    #    """
-    #    return self.viewer.view_manager.get_secondary_axis_config()
-
-    # def disable(self) -> None:
-    #    """Disable the secondary axis."""
-    #    self.viewer.view_manager.disable_secondary_axis()
-    #    self.viewer._update_plot()
-    #    self.viewer.canvas.draw_idle()
-
-    # def enable_with_config(self, config: AxisSecondaryConfig) -> None:
-    #    """
-    #    Enable secondary axis with a specific configuration.
-
-    #    Args:
-    #        config: AxisSecondaryConfig object to apply
-    #    """
-    #    self.viewer.view_manager.configure_secondary_axis(config)
-
-    #    # Update UI if available
-    #    if (
-    #        hasattr(self.viewer, "control_bar_manager")
-    #        and self.viewer.control_bar_manager
-    #    ):
-    #        self.viewer.control_bar_manager.set_secondary_axis_enabled(True)
-    #        self.viewer.control_bar_manager.set_secondary_axis_config(config)
-
-    #    self.viewer._update_plot()
-    #    self.viewer.canvas.draw_idle()

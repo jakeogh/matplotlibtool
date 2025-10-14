@@ -3,9 +3,6 @@
 
 from __future__ import annotations
 
-from typing import List
-
-import numpy as np
 from matplotlib.axes import Axes
 
 
@@ -65,14 +62,11 @@ class GridManager:
         """Remove all custom grid lines."""
         for line in self.grid_lines:
             try:
-                # Use the proper matplotlib method to remove lines
                 if hasattr(line, "remove"):
                     line.remove()
                 elif hasattr(self.ax, "lines") and line in self.ax.lines:
                     self.ax.lines.remove(line)
             except (ValueError, AttributeError, NotImplementedError):
-                # Line might already be removed, invalid, or not removable
-                # Try alternative removal methods
                 try:
                     if hasattr(self.ax, "collections") and line in self.ax.collections:
                         self.ax.collections.remove(line)
@@ -92,15 +86,12 @@ class GridManager:
         if not self.grid_enabled or self.grid_spacing_power <= 0:
             return
 
-        # Calculate spacing
         spacing = 2**self.grid_spacing_power
 
-        # Get current view limits
         xlim = self.ax.get_xlim()
         ylim = self.ax.get_ylim()
         y_min, y_max = ylim
 
-        # Calculate line positions starting from 0 and going both directions
         line_positions = []
 
         # Add y=0 if it's in range
@@ -121,7 +112,6 @@ class GridManager:
                 line_positions.append(float(y))
             y -= spacing
 
-        # Debug output
         print(
             f"[GridManager] Drawing {len(line_positions)} lines with spacing 2^{self.grid_spacing_power}={spacing}"
         )
@@ -132,7 +122,6 @@ class GridManager:
                 f"[GridManager] Line positions: {sorted_positions[:3]} ... {sorted_positions[-3:]} (showing first/last 3)"
             )
 
-        # Draw the lines
         for y_pos in line_positions:
             try:
                 line = self.ax.axhline(
@@ -140,7 +129,7 @@ class GridManager:
                     color=self.grid_color,
                     linewidth=1.0,
                     alpha=0.6,
-                    zorder=0.5,  # Behind data but above background
+                    zorder=0.5,
                 )
                 self.grid_lines.append(line)
             except Exception as e:
@@ -180,13 +169,10 @@ class GridManager:
             horizontal_grid_enabled: Whether to show horizontal grid (None = use current setting)
             max_lines: Maximum horizontal lines to draw
         """
-        # Setup axes grid
         self.setup_axes_grid(axes_grid_enabled)
 
-        # Clear old horizontal grid lines
         self.clear_grid_lines()
 
-        # Draw new horizontal grid if enabled
         if horizontal_grid_enabled is not None:
             self.grid_enabled = horizontal_grid_enabled and self.grid_spacing_power > 0
 

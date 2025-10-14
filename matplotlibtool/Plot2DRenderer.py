@@ -38,7 +38,7 @@ class Matplotlib2DRenderer:
         self,
         ax: Axes,
         *,
-        plots: Sequence[object],  # List of Overlay objects
+        plots: Sequence[object],
         auto_aspect: bool,
         view_xlim: tuple[float, float],
         view_ylim: tuple[float, float],
@@ -56,7 +56,7 @@ class Matplotlib2DRenderer:
         Args:
             ax: Matplotlib axes
             plots: List of plot objects (Overlay instances)
-            auto_aspect: If True, use auto aspect ratio (NOT USED - kept for API compat)
+            auto_aspect: If True, use auto aspect ratio (kept for API compat)
             view_xlim: X axis limits
             view_ylim: Y axis limits
             grid_enabled: Whether grid is enabled
@@ -65,18 +65,15 @@ class Matplotlib2DRenderer:
             axes_grid_color: Axes grid color
             disable_antialiasing: Whether to disable antialiasing
             max_display_points: Maximum points to display per plot
-            in_zoom_box: Whether currently in zoom box mode (NOT USED - kept for API compat)
+            in_zoom_box: Whether currently in zoom box mode (kept for API compat)
         """
-        # Initialize axes if needed
         if not self.plot_initialized:
             self._initialize_axes(ax, axes_grid_color)
             self.plot_initialized = True
 
-        # Clear old artists
         ax.clear()
 
         # Reapply styling after clear
-        # DO NOT set aspect ratio here - it's handled by Plot2D._update_plot()
         ax.set_facecolor("black")
         ax.grid(
             True,
@@ -123,8 +120,7 @@ class Matplotlib2DRenderer:
 
             # Draw scatter
             if display_colors is not None and len(display_colors) > 0:
-                # CRITICAL: Color data should already be normalized to [0, 1] by Plot2D._update_plot()
-                # with either global or local color range applied
+                # Color data should already be normalized to [0, 1] by Plot2D._update_plot()
                 scatter = ax.scatter(
                     display_points[:, 0],
                     display_points[:, 1],
@@ -195,7 +191,6 @@ class Matplotlib2DRenderer:
                     )
                     plot.line_artist = lines[0] if lines else None
 
-        # Set limits
         ax.set_xlim(*view_xlim)
         ax.set_ylim(*view_ylim)
 
@@ -213,8 +208,6 @@ class Matplotlib2DRenderer:
             alpha=0.3,
         )
         ax.tick_params(colors="white")
-
-        # DO NOT set aspect ratio here - it's handled by Plot2D._update_plot()
 
     def _draw_grid_lines(
         self,

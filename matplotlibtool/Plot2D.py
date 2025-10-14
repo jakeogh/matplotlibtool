@@ -40,13 +40,13 @@ from .CoordinateTransformEngine import CoordinateTransformEngine
 from .FileLoaderRegistry import FileLoaderRegistry
 from .GridManager import GridManager
 from .InputState import InputState
+from .KeyboardInputManager import KeyboardInputManager
 from .Plot2DInteractions import Plot2DInteractions
 from .Plot2DRenderer import Matplotlib2DRenderer
 from .PlotEventHandlers import PlotEventHandlers
 from .PlotGroupContext import PlotGroupContext
 from .PlotManager import PlotManager
 from .PointHover import PointHoverManager
-from .utils import KeyboardInputManager
 from .utils import get_bounds_2d
 from .ViewManager import ViewManager
 
@@ -146,47 +146,14 @@ class Plot2D(QMainWindow):
         self.canvas = FigureCanvas(self.fig)
 
         self.canvas.setMouseTracking(True)
-        print("[DEBUG] Mouse tracking enabled on canvas")
 
-        # Test if matplotlib is receiving events at all
-        def _debug_any_event(name):
-            """Create a debug wrapper for any matplotlib event"""
-
-            def wrapper(event):
-                print(f"[MPL-{name}] Event received!")
-                if hasattr(event, "x") and hasattr(event, "y"):
-                    print(f"[MPL-{name}]   Position: x={event.x}, y={event.y}")
-                if hasattr(event, "xdata") and hasattr(event, "ydata"):
-                    print(
-                        f"[MPL-{name}]   Data coords: x={event.xdata}, y={event.ydata}"
-                    )
-
-            return wrapper
-
-        # Connect test handlers for various events
-        self.canvas.mpl_connect("motion_notify_event", _debug_any_event("motion"))
-        self.canvas.mpl_connect("button_press_event", _debug_any_event("press"))
-        self.canvas.mpl_connect("button_release_event", _debug_any_event("release"))
-        print("[DEBUG] Test matplotlib event handlers connected")
-
-        # Also test at the Qt level
         original_mouseMoveEvent = self.canvas.mouseMoveEvent
 
         def debug_qt_mouse_move(qt_event):
-            print(
-                f"[QT] mouseMoveEvent: pos=({qt_event.pos().x()}, {qt_event.pos().y()})"
-            )
             result = original_mouseMoveEvent(qt_event)
-            print(f"[QT] mouseMoveEvent returned: {result}")
             return result
 
         self.canvas.mouseMoveEvent = debug_qt_mouse_move
-        print("[DEBUG] Qt mouse move debug wrapper installed")
-
-        # Print final state
-        print(f"[DEBUG] Canvas hasMouseTracking: {self.canvas.hasMouseTracking()}")
-        print(f"[DEBUG] Canvas isEnabled: {self.canvas.isEnabled()}")
-        print(f"[DEBUG] Canvas parent: {self.canvas.parent()}")
 
         self.ax = self.fig.add_subplot(111)
 
@@ -232,7 +199,11 @@ class Plot2D(QMainWindow):
         )
 
         # Point hover manager (for identifying points with mouse)
-        self.point_hover = PointHoverManager(self, self.ax, self.canvas)
+        self.point_hover = PointHoverManager(
+            self,
+            self.ax,
+            self.canvas,
+        )
         print("[INFO] Point hover initialized - press 'H' to toggle")
 
         # Set initial view bounds
@@ -286,8 +257,7 @@ class Plot2D(QMainWindow):
         # Start with selector enabled (it will be disabled during panning)
         self.rect_selector.set_active(True)
 
-        # CRITICAL: Connect hover DIRECTLY to canvas motion events
-        # This bypasses the RectangleSelector interception issue
+        # Connect hover DIRECTLY to canvas motion events to bypass RectangleSelector interception
         self._hover_connection = self.canvas.mpl_connect(
             "motion_notify_event", self._on_hover_motion_wrapper
         )
@@ -369,13 +339,6 @@ class Plot2D(QMainWindow):
         Args:
             event: Matplotlib motion event
         """
-
-        # ADD CRITICAL DEBUG
-        print(f"[WRAPPER] _on_hover_motion_wrapper called!")
-        print(f"[WRAPPER]   panning={self.interactions._panning}")
-        print(f"[WRAPPER]   hover enabled={self.point_hover.enabled}")
-
-        # Only process if not panning
         if not self.interactions._panning:
             self.point_hover.on_hover_motion(event)
 
@@ -391,8 +354,6 @@ class Plot2D(QMainWindow):
             with viewer.plot_group(color_field='frame', group_name='My Data') as group:
                 group.add_plot(data1, x_field='x', y_field='y', color_field='frame')
                 group.add_plot(data2, x_field='x', y_field='y', color_field='frame')
-            # On exit, all plots are rendered with consistent global color mapping
-            # and registered as a group for group-level operations
 
         Args:
             color_field: Name of the field to use for global color mapping across all plots
@@ -655,7 +616,6 @@ class Plot2D(QMainWindow):
             # Update field scale inputs for the new array
             if self.array_field_integration.scale_row:
                 self.array_field_integration.scale_row.set_current_array(array_index)
-                print(f"[DEBUG] Scale row updated for array {array_index}")
 
             return result_transform_params
 
@@ -751,7 +711,6 @@ class Plot2D(QMainWindow):
 
     def _on_plot_added(self, plot_index: int):
         """Handle when a plot is added."""
-        print(f"[DEBUG] _on_plot_added called with plot_index={plot_index}")
         self._update_plot()
         self.ax.stale = True
         self.fig.stale = True
@@ -763,9 +722,6 @@ class Plot2D(QMainWindow):
         visible: bool,
     ):
         """Handle when plot visibility changes."""
-        print(
-            f"[DEBUG] _on_plot_visibility_changed: plot_index={plot_index}, visible={visible}"
-        )
         self._update_plot()
         self.canvas.draw_idle()
 
@@ -954,17 +910,13 @@ class Plot2D(QMainWindow):
 
     def _update_plot(self):
         """Update the complete plot."""
-        print(f"[DEBUG] === _update_plot() called ===")
-
         with self.busy_manager.busy_operation("Updating plot"):
             current_bounds = self.view_manager.get_current_bounds()
             all_plots = self.plot_manager.get_all_plots()
 
-            print(f"[DEBUG] Total plots: {len(all_plots)}")
-
-            # CRITICAL: Dynamically set aspect ratio based on secondary axes state
+            # Dynamically set aspect ratio based on secondary axes state
             # Matplotlib has conflicting requirements:
-            # - WITH secondary axes (twinx/twiny): MUST use adjustable='datalim', cannot use equal aspect
+            # - WITH secondary axes (twinx/twiny): MUST use adjustable='datalim'
             # - WITHOUT secondary axes: Can use any combination
             has_secondary_axes = (
                 self.view_manager.secondary_axis_manager.is_any_enabled()
@@ -1041,10 +993,6 @@ class Plot2D(QMainWindow):
                                     0.5,
                                     dtype=np.float32,
                                 )
-
-                            print(
-                                f"[DEBUG] Plot {i} using global color range: [{global_min:.3f}, {global_max:.3f}]"
-                            )
                         else:
                             # Use local (per-plot) color range
                             if len(culled_plot.color_data) > 0:
@@ -1106,8 +1054,6 @@ class Plot2D(QMainWindow):
 
             self._apply_axis_scaling()
             self.secondary_axis.update_after_plot()
-
-        print(f"[DEBUG] === _update_plot() completed ===")
 
     def _qcolor_to_hex(self, qc: QColor) -> str:
         return (

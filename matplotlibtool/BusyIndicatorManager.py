@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 # tab-width:4
 
-# pylint: disable=no-name-in-module
 from __future__ import annotations
 
 import time
@@ -35,26 +34,22 @@ class BusyIndicatorManager:
         """
         self.status_label = status_label
         self.is_busy = False
-        self.busy_count = 0  # Track nested busy operations
+        self.busy_count = 0
 
         # Timer to delay busy indicator to avoid flicker on very fast operations
         self.busy_timer = QTimer()
         self.busy_timer.setSingleShot(True)
         self.busy_timer.timeout.connect(self._show_busy_immediate)
-        self.busy_delay_ms = 0  # FIXED: Show immediately, no delay
+        self.busy_delay_ms = 0
 
         # Timer to ensure minimum busy display time for visibility
         self.min_busy_timer = QTimer()
         self.min_busy_timer.setSingleShot(True)
         self.min_busy_timer.timeout.connect(self._hide_busy_immediate)
-        self.min_busy_time_ms = (
-            1000  # INCREASED: Keep busy visible for 1 second minimum
-        )
+        self.min_busy_time_ms = 1000
 
-        # State tracking
         self._pending_hide = False
 
-        # NUCLEAR OPTION: Use QPalette instead of stylesheets to bypass CSS
         self.original_palette = None
 
     def set_status_label(self, label: QLabel) -> None:
@@ -65,7 +60,7 @@ class BusyIndicatorManager:
             raise TypeError(f"status_label must be QLabel, got {type(label).__name__}")
 
         self.status_label = label
-        self.original_palette = label.palette()  # Store original palette
+        self.original_palette = label.palette()
         self._apply_idle_style()
 
     def _require_status_label(self) -> None:
@@ -98,19 +93,19 @@ class BusyIndicatorManager:
 
     def start_busy(self, operation_name: str = "Processing") -> None:
         """Start a busy operation (non-context manager API)."""
-        self._require_status_label()  # FAIL LOUDLY if not connected
+        self._require_status_label()
         self._start_busy(operation_name)
 
     def end_busy(self, operation_name: str = "Processing") -> None:
         """End a busy operation (non-context manager API)."""
-        self._require_status_label()  # FAIL LOUDLY if not connected
+        self._require_status_label()
         self._end_busy(operation_name)
 
     def _start_busy(self, operation_name: str) -> None:
         """Start a busy operation."""
         self.busy_count += 1
 
-        if self.busy_count == 1:  # First busy operation
+        if self.busy_count == 1:
             self._pending_hide = False
 
             if not self.is_busy:
@@ -123,28 +118,19 @@ class BusyIndicatorManager:
         """End a busy operation."""
         self.busy_count = max(0, self.busy_count - 1)
 
-        if self.busy_count == 0:  # Last busy operation finished
-            # Cancel the delay timer if operation finished before delay
+        if self.busy_count == 0:
             self.busy_timer.stop()
 
             if self.is_busy:
-                # If we're currently showing busy, ensure minimum display time
                 self._pending_hide = True
                 if not self.min_busy_timer.isActive():
-                    # Start minimum display timer
                     self.min_busy_timer.start(self.min_busy_time_ms)
-            else:
-                # print(f"{timestamp()} [BUSY] Operation completed before busy was shown")
-                pass
 
     def _show_busy_immediate(self) -> None:
         """Show busy indicator immediately."""
         if self.busy_count > 0 and not self.is_busy:
             self.is_busy = True
             self._apply_busy_style()
-            # print(
-            #    f"{timestamp()} [BUSY] *** INDICATOR SHOWN *** (should be BLACK with BUSY text)"
-            # )
 
     def _hide_busy_immediate(self) -> None:
         """Hide busy indicator immediately."""
@@ -152,17 +138,12 @@ class BusyIndicatorManager:
             self.is_busy = False
             self._pending_hide = False
             self._apply_idle_style()
-            # print(
-            #    f"{timestamp()} [BUSY] *** INDICATOR HIDDEN *** (should be normal now)"
-            # )
 
     def _apply_busy_style(self) -> None:
         """Apply busy visual style using QPalette (bypasses CSS)."""
-        self._require_status_label()  # FAIL LOUDLY
+        self._require_status_label()
 
-        # print(f"{timestamp()} [BUSY] Applying BLACK busy style...")
-
-        # Method 1: Use QPalette to bypass CSS completely
+        # Use QPalette to bypass CSS completely
         busy_palette = QPalette()
         busy_palette.setColor(QPalette.ColorRole.Window, Qt.GlobalColor.black)
         busy_palette.setColor(QPalette.ColorRole.WindowText, Qt.GlobalColor.white)
@@ -172,7 +153,7 @@ class BusyIndicatorManager:
         self.status_label.setPalette(busy_palette)
         self.status_label.setAutoFillBackground(True)
 
-        # Method 2: Also try stylesheet with maximum specificity
+        # Also try stylesheet with maximum specificity
         self.status_label.setStyleSheet(
             """
             QLabel {
@@ -189,24 +170,20 @@ class BusyIndicatorManager:
 
         self.status_label.update()
         self.status_label.repaint()
-        # print(f"{timestamp()} [BUSY] Style applied to label: '{self.status_label.text()}'")
 
     def _apply_idle_style(self) -> None:
         """Apply idle visual style."""
-        self._require_status_label()  # FAIL LOUDLY
-
-        # print(f"{timestamp()} [BUSY] Applying normal idle style...")
+        self._require_status_label()
 
         # Restore original palette
         if self.original_palette:
             self.status_label.setPalette(self.original_palette)
 
         self.status_label.setAutoFillBackground(False)
-        self.status_label.setText("")  # Clear text when idle
+        self.status_label.setText("")
 
         # Clear any custom stylesheet
         self.status_label.setStyleSheet("")
 
         self.status_label.update()
         self.status_label.repaint()
-        # print(f"{timestamp()} [BUSY] Idle style applied")

@@ -233,11 +233,6 @@ class PlotGroupContext:
 
         self.accumulated_plots.append(plot_data)
 
-        print(
-            f"[DEBUG] Accumulated plot {len(self.accumulated_plots)}: {plot_name or y_field} "
-            f"(color range: [{local_min:.3f}, {local_max:.3f}])"
-        )
-
     def _add_plot_with_global_range(self, plot_data: dict) -> int:
         """
         Add a plot using the global color range.
@@ -393,9 +388,7 @@ class PlotGroupContext:
         group_id = viewer.plot_manager.register_plot_group(
             group_name=array_name,
             plot_indices=[plot_index],
-            color_field=(
-                color_field if color_field else y_field
-            ),  # Use color_field if provided, else y_field
+            color_field=color_field if color_field else y_field,
             color_range=(
                 (global_color_min, global_color_max)
                 if global_color_min is not None

@@ -1,17 +1,13 @@
 #!/usr/bin/env python3
 # tab-width:4
-# pylint: disable=no-name-in-module
 
 from __future__ import annotations
 
-import sys
 import time
-from typing import Optional
 
 import numpy as np
 from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import QApplication
-from PyQt6.QtWidgets import QFileDialog
 
 
 class PlotEventHandlers:
@@ -32,19 +28,18 @@ class PlotEventHandlers:
 
         # Throttling for keyboard operations to prevent key repeat issues
         self.last_scale_update = 0.0
-        self.scale_throttle_ms = 50  # Minimum 50ms between scale updates
+        self.scale_throttle_ms = 50
 
     def _should_throttle_scaling(self) -> bool:
         """Check if scaling should be throttled to prevent key repeat issues."""
-        now = time.time() * 1000  # Convert to milliseconds
+        now = time.time() * 1000
         if now - self.last_scale_update < self.scale_throttle_ms:
             return True
         self.last_scale_update = now
         return False
 
-    # -------- Timer and scaling --------
     def on_timer(self):
-        """Timer callback for continuous updates with AXIS SCALING."""
+        """Timer callback for continuous updates with axis scaling."""
         now = time.time()
         dt = now - self.viewer.last_time
         self.viewer.last_time = now
@@ -52,35 +47,25 @@ class PlotEventHandlers:
         old_scale = self.viewer.state.scale.copy()
         self.viewer.keyboard_manager.update_scaling(dt, dimensions=2)
 
-        # Only update if scale changed AND we're not throttling
         if not np.allclose(old_scale, self.viewer.state.scale):
             if not self._should_throttle_scaling():
-                # Check if axis scaling is disabled (e.g., during mouse wheel zoom)
                 if hasattr(self.viewer, "interactions") and hasattr(
                     self.viewer.interactions, "_disable_axis_scaling"
                 ):
                     if self.viewer.interactions._disable_axis_scaling:
-                        # Skip this update - mouse wheel zoom is in progress
                         return
 
-                # Only update plot if we're not currently busy
                 if not self.viewer.busy_manager.is_busy:
                     with self.viewer.busy_manager.busy_operation("Scaling"):
-                        # AXIS SCALING: Just apply axis scaling, no full plot update needed
                         self.viewer._apply_axis_scaling()
                         self.viewer.canvas.draw_idle()
-                else:
-                    # If busy, just skip this update - the scaling will accumulate
-                    pass
 
     def on_dark_mode_toggled(self, enabled: bool):
         """Handle dark mode toggle."""
         self.viewer.set_dark_mode(enabled)
 
-    # -------- File operations --------
     def on_add_files(self):
         """Open QFileDialog for supported file types and append resulting plots."""
-        # Use the file loader registry to handle file selection and loading
         paths = self.viewer.file_loader_registry.open_file_dialog(self.viewer)
         if not paths:
             return
@@ -88,7 +73,6 @@ class PlotEventHandlers:
         with self.viewer.busy_manager.busy_operation("Loading data files"):
             all_plots = self.viewer.file_loader_registry.load_files(paths)
 
-            # Add all successfully loaded plots
             added = 0
             for arr in all_plots:
                 self.viewer.add_plot(arr)
@@ -99,7 +83,6 @@ class PlotEventHandlers:
             else:
                 print("[INFO] No plots were successfully added")
 
-    # -------- Plot selection and properties --------
     def on_plot_selection_changed(self, plot_index: int) -> None:
         """Retarget controls to the newly selected plot."""
         self.viewer.plot_manager.select_plot(plot_index)
@@ -121,7 +104,6 @@ class PlotEventHandlers:
     def on_line_width_changed(self, value: float) -> None:
         """Handle line width change for selected plot(s) or group."""
         if self.viewer.plot_manager.is_group_selected():
-            # Apply to all plots in group
             group_id = self.viewer.plot_manager.selected_group_id
             self.viewer.plot_manager.set_group_property(
                 group_id,
@@ -129,7 +111,6 @@ class PlotEventHandlers:
                 value,
             )
         else:
-            # Apply to single plot
             plot_index = self.viewer.plot_manager.selected_plot_index
             self.viewer.plot_manager.set_plot_property(
                 plot_index,
@@ -151,10 +132,8 @@ class PlotEventHandlers:
         from datetime import datetime
         from pathlib import Path
 
-        # Create timestamp
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-        # Create output path
         output_dir = Path("/delme")
         output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -186,10 +165,7 @@ class PlotEventHandlers:
         """Handle visibility toggle for the selected plot."""
         plot_index = self.viewer.plot_manager.selected_plot_index
         self.viewer.plot_manager.set_plot_visibility(plot_index, visible)
-        # Note: _update_plot() and canvas.draw_idle() are called by
-        # the _on_plot_visibility_changed() signal handler
 
-    # -------- Grid controls --------
     def on_grid_changed(self, grid_text: str):
         """Handle grid spacing changes."""
         with self.viewer.busy_manager.busy_operation("Updating grid"):
@@ -230,11 +206,9 @@ class PlotEventHandlers:
             self.viewer._update_plot()
             self.viewer.canvas.draw_idle()
 
-    # -------- View operations --------
     def fit_view_to_data(self):
         """Fit the view to show all data points with proper scaling."""
         with self.viewer.busy_manager.busy_operation("Fitting view to data"):
-            # Use new PlotManager API
             visible_plots = self.viewer.plot_manager.get_visible_plots()
 
             if not visible_plots:
@@ -243,7 +217,6 @@ class PlotEventHandlers:
 
             all_points = []
             for plot in visible_plots:
-                # Apply offset to points
                 offset_points = plot.points + np.array(
                     [plot.offset_x, plot.offset_y], dtype=np.float32
                 )
@@ -253,11 +226,9 @@ class PlotEventHandlers:
                 all_points, pad_ratio=0.05
             )
 
-            # AXIS SCALING: Reset scale state when fitting to data
             self.viewer.state.scale[:2] = 1.0
             self.viewer.state.velocity[:2] = 0.0
 
-            # Update base limits for future scaling
             self.viewer.base_xlim = new_bounds.xlim
             self.viewer.base_ylim = new_bounds.ylim
 
@@ -286,11 +257,9 @@ class PlotEventHandlers:
 
             applied_bounds = self.viewer.view_manager.apply_validated_bounds(new_bounds)
 
-            # AXIS SCALING: Reset scale state when applying custom bounds
             self.viewer.state.scale[:2] = 1.0
             self.viewer.state.velocity[:2] = 0.0
 
-            # Update base limits for future scaling
             self.viewer.base_xlim = applied_bounds.xlim
             self.viewer.base_ylim = applied_bounds.ylim
 
@@ -327,16 +296,13 @@ class PlotEventHandlers:
     def reset_view(self) -> None:
         """Reset axes limits to data bounds and reset scaling."""
         with self.viewer.busy_manager.busy_operation("Resetting view"):
-            # Get ALL visible plots
             visible_plots = self.viewer.plot_manager.get_visible_plots()
 
             if not visible_plots:
-                # No visible data, just set default bounds
                 new_bounds = self.viewer.view_manager.set_view_bounds(
                     xlim=(0, 1), ylim=(0, 1)
                 )
             else:
-                # Collect all visible points
                 all_points = []
                 for plot in visible_plots:
                     offset_points = plot.points + np.array(
@@ -346,22 +312,13 @@ class PlotEventHandlers:
 
                 pad_ratio = 0.1
 
-                try:
-                    new_bounds = self.viewer.view_manager.reset_to_data_bounds(
-                        all_points, pad_ratio
-                    )
-                except Exception:
-                    assert False
-                    # Fallback if reset fails
-                    new_bounds = self.viewer.view_manager.fit_to_data(
-                        all_points, pad_ratio
-                    )
+                new_bounds = self.viewer.view_manager.reset_to_data_bounds(
+                    all_points, pad_ratio
+                )
 
-            # AXIS SCALING: Reset scale state completely
             self.viewer.state.scale[:] = 1.0
             self.viewer.state.velocity[:] = 0.0
 
-            # Update base limits for future scaling
             self.viewer.base_xlim = new_bounds.xlim
             self.viewer.base_ylim = new_bounds.ylim
 
@@ -378,7 +335,6 @@ class PlotEventHandlers:
     def on_group_selection_changed(self, group_id: int) -> None:
         """Handle when a plot group is selected."""
         self.viewer.plot_manager.select_group(group_id)
-        # Sync controls will show mixed values where plots differ
         self.viewer.control_bar_integration.sync_controls_to_selection()
 
     def on_plot_selection_changed(self, plot_index: int) -> None:
@@ -389,7 +345,6 @@ class PlotEventHandlers:
     def on_point_size_changed(self, value: float) -> None:
         """Handle point size change for selected plot(s) or group."""
         if self.viewer.plot_manager.is_group_selected():
-            # Apply to all plots in group
             group_id = self.viewer.plot_manager.selected_group_id
             self.viewer.plot_manager.set_group_property(
                 group_id,
@@ -397,7 +352,6 @@ class PlotEventHandlers:
                 value,
             )
         else:
-            # Apply to single plot
             plot_index = self.viewer.plot_manager.selected_plot_index
             self.viewer.plot_manager.set_plot_property(
                 plot_index,
@@ -408,7 +362,6 @@ class PlotEventHandlers:
     def on_lines_toggled(self, checked: bool) -> None:
         """Handle lines toggle for selected plot(s) or group."""
         if self.viewer.plot_manager.is_group_selected():
-            # Apply to all plots in group
             group_id = self.viewer.plot_manager.selected_group_id
             self.viewer.plot_manager.set_group_property(
                 group_id,
@@ -416,7 +369,6 @@ class PlotEventHandlers:
                 checked,
             )
         else:
-            # Apply to single plot
             plot_index = self.viewer.plot_manager.selected_plot_index
             self.viewer.plot_manager.set_plot_property(
                 plot_index,
@@ -429,12 +381,10 @@ class PlotEventHandlers:
         if palette_name.startswith("───"):
             return
 
-        # Skip mixed state indicator
         if palette_name == "(Mixed)":
             return
 
         if self.viewer.plot_manager.is_group_selected():
-            # Apply to all plots in group
             group_id = self.viewer.plot_manager.selected_group_id
             self.viewer.plot_manager.set_group_property(
                 group_id,
@@ -577,7 +527,6 @@ class PlotEventHandlers:
 
             # Second pass: Update each plot
             for plot_index in plot_indices:
-                # Find the array that owns this plot
                 array_index = (
                     self.viewer.array_field_integration._get_array_index_for_plot(
                         plot_index
@@ -641,7 +590,6 @@ class PlotEventHandlers:
                     f"[INFO] Updated plot {plot_index} to use color field '{field_name}'"
                 )
 
-            # Force update and redraw
             self.viewer._update_plot()
             self.viewer.canvas.draw_idle()
 

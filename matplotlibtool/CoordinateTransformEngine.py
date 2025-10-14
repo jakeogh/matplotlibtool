@@ -14,7 +14,7 @@ import numpy as np
 class TransformParams:
     """Container for coordinate transformation parameters."""
 
-    transform_type: str  # "normalize", "center", or "raw"
+    transform_type: str
     center: np.ndarray | None = None
     scale_factor: float | None = None
 
@@ -76,7 +76,6 @@ class CoordinateTransformEngine:
         # Use only the required dimensions
         working_points = points[:, : self.dimensions]
 
-        # Calculate transformation parameters
         min_vals = working_points.min(axis=0)
         max_vals = working_points.max(axis=0)
         center = (min_vals + max_vals) / 2
@@ -84,7 +83,6 @@ class CoordinateTransformEngine:
         max_extent = size.max()
 
         if max_extent == 0:
-            # All points are the same - just center them
             transformed = working_points - center
             scale_factor = 1.0
         else:
@@ -112,7 +110,6 @@ class CoordinateTransformEngine:
         if points.shape[0] == 0:
             return points, TransformParams("center")
 
-        # Use only the required dimensions
         working_points = points[:, : self.dimensions]
 
         # Calculate center
@@ -162,7 +159,6 @@ class CoordinateTransformEngine:
         if points.shape[0] == 0:
             return points
 
-        # Use only the required dimensions
         working_points = points[:, : self.dimensions]
 
         if params.transform_type == "normalize":
@@ -182,18 +178,3 @@ class CoordinateTransformEngine:
             raise ValueError(f"Unknown transform type: {params.transform_type}")
 
         return transformed.astype(np.float32)
-
-
-## Convenience functions for backward compatibility
-# def normalize_points_2d(points: np.ndarray) -> np.ndarray:
-#    """Normalize 2D points to unit square centered at origin."""
-#    engine = CoordinateTransformEngine(dimensions=2)
-#    transformed, _ = engine.normalize_points(points)
-#    return transformed
-#
-#
-# def center_points_2d(points: np.ndarray) -> np.ndarray:
-#    """Center 2D points at origin without scaling."""
-#    engine = CoordinateTransformEngine(dimensions=2)
-#    transformed, _ = engine.center_points(points)
-#    return transformed

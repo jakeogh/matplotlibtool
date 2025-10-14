@@ -13,16 +13,11 @@ A library for visualizing 3D point clouds with unlimited rotation and scaling co
 
 from __future__ import annotations
 
-import numpy as np
 from PyQt6.QtCore import Qt  # type: ignore
 from PyQt6.QtGui import QColor  # type: ignore
-from PyQt6.QtGui import QGuiApplication
 from PyQt6.QtGui import QPalette
 from PyQt6.QtWidgets import QApplication  # type: ignore
-from vispy import scene  # type: ignore
 from vispy.app import use_app  # type: ignore
-from vispy.scene import visuals  # type: ignore
-from vispy.scene.cameras import TurntableCamera  # type: ignore
 
 use_app("pyqt6")
 

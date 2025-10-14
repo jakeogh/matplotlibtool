@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 # tab-width:4
-# pylint: disable=no-name-in-module
 
 """
 File Loader Registry Module for PointCloud2DViewerMatplotlib
@@ -13,9 +12,6 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
-from typing import Dict
-from typing import List
-from typing import Optional
 
 import numpy as np
 from PyQt6.QtWidgets import QFileDialog
@@ -55,7 +51,6 @@ class FileLoaderRegistry:
 
         Example:
             def my_iio_loader(paths):
-                # Load IIO files and return list of arrays
                 return [load_iio_file(path) for path in paths]
 
             registry.register_loader('.iio', my_iio_loader)
@@ -118,12 +113,10 @@ class FileLoaderRegistry:
         Raises:
             ValueError: If no loader is registered for a file extension
         """
-        # Group files by extension
         extension_groups = self._group_files_by_extension(file_paths)
 
         all_plots = []
 
-        # Process each group with appropriate loader
         for ext, ext_paths in extension_groups.items():
             if ext in self.file_loaders:
                 loader_func = self.file_loaders[ext]
@@ -159,7 +152,6 @@ class FileLoaderRegistry:
             )
             return None
 
-        # Build file filter
         filter_string = self._build_file_filter()
 
         paths, _ = QFileDialog.getOpenFileNames(
@@ -216,7 +208,6 @@ class FileLoaderRegistry:
         if not registered_extensions:
             return "All files (*)"
 
-        # Create filter string
         filter_parts = []
         for ext in registered_extensions:
             filter_parts.append(f"*{ext}")

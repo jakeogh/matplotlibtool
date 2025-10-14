@@ -37,28 +37,25 @@ def make_colors_from_scalar(
 
     # Normalize to [0, 1] using the determined range
     color_range = data_max - data_min
-    if color_range > 1e-9:  # Has variation
+    if color_range > 1e-9:
         color_norm = (color_data - data_min) / color_range
-    else:  # Uniform data
+    else:
         # Map uniform value to its position in global range
         if global_min is not None and global_max is not None:
             global_range = global_max - global_min
             if global_range > 1e-9:
-                # Position in global range
                 color_norm = np.full_like(
                     color_data,
                     (data_min - global_min) / global_range,
                     dtype=np.float32,
                 )
             else:
-                # Global range is also uniform, use middle
                 color_norm = np.full_like(
                     color_data,
                     0.5,
                     dtype=np.float32,
                 )
         else:
-            # No global range, uniform data, use middle
             color_norm = np.full_like(
                 color_data,
                 0.5,
@@ -73,8 +70,7 @@ def make_colors_from_scalar(
     )
 
     if backend == "vispy":
-        from vispy.color import \
-            Colormap  # type: ignore  # pylint: disable=import-outside-toplevel
+        from vispy.color import Colormap
 
         if colormap == "viridis":
             cmap = Colormap(["blue", "cyan", "green", "yellow", "red"])
@@ -83,22 +79,20 @@ def make_colors_from_scalar(
         return cmap.map(color_norm)
 
     elif backend == "matplotlib":
-        from matplotlib.colors import \
-            Colormap  # pylint: disable=import-outside-toplevel
+        from matplotlib.colors import Colormap
 
         if colormap == "viridis":
-            # pylint: disable-next=no-member
             cmap = Colormap.from_list(
                 "custom", ["blue", "cyan", "green", "yellow", "red"]
             )
         else:
-            import matplotlib.pyplot as plt  # pylint: disable=import-outside-toplevel
+            import matplotlib.pyplot as plt
 
             cmap = plt.get_cmap(colormap)
         return cmap(color_norm)
 
     elif backend == "datoviz":
-        import datoviz as dvz  # type: ignore # pylint: disable=import-outside-toplevel
+        import datoviz as dvz
 
         s = color_norm.astype(np.float32)
         return dvz.cmap(colormap, s)

@@ -57,16 +57,12 @@ class PointHoverManager:
         # CRITICAL: Disable RectangleSelector to allow motion events through
         if hasattr(self.viewer, "rect_selector") and self.viewer.rect_selector:
             self.viewer.rect_selector.set_active(False)
-            print("[DEBUG] RectangleSelector disabled for hover mode")
 
         # Connect right-click handler
         if self._click_connection is None:
             self._click_connection = self.canvas.mpl_connect(
                 "button_press_event", self._on_click
             )
-
-        print("[INFO] Point hover enabled - hover over points to see coordinates")
-        print("[INFO] Right-click to copy coordinates to clipboard")
 
     def disable(self):
         """Disable point hover identification and clear markers."""
@@ -82,9 +78,6 @@ class PointHoverManager:
         # Re-enable RectangleSelector
         if hasattr(self.viewer, "rect_selector") and self.viewer.rect_selector:
             self.viewer.rect_selector.set_active(True)
-            print("[DEBUG] RectangleSelector re-enabled")
-
-        print("[INFO] Point hover disabled")
 
     def toggle(self):
         """Toggle point hover on/off."""
@@ -112,14 +105,11 @@ class PointHoverManager:
         Args:
             event: Matplotlib mouse event
         """
-        print(f"[HOVER-START] on_hover_motion called! enabled={self.enabled}")
 
         # Don't interfere with other operations
         if not self.enabled:
-            print(f"[HOVER-START] Exiting - not enabled")
+            # print(f"[HOVER-START] Exiting - not enabled")
             return
-
-        print(f"[HOVER-AXES] event.inaxes={event.inaxes}, self.ax={self.ax}")
 
         # Get all axes including secondary
         all_axes = [self.ax]
@@ -130,59 +120,42 @@ class PointHoverManager:
             if sec_mgr.x_axis_manager.secondary_ax:
                 all_axes.append(sec_mgr.x_axis_manager.secondary_ax)
 
-        print(f"[HOVER-AXES] All axes: {all_axes}")
-
         # Check if in any axes
         if event.inaxes not in all_axes:
-            print(f"[HOVER-AXES] Not in any axes, clearing display")
             if self.hover_marker or self.hover_annotation:
                 self.clear_hover_display()
                 self.canvas.draw_idle()
             return
-
-        print(f"[HOVER] Mouse motion event received, enabled={self.enabled}")
 
         # Get mouse position in PRIMARY AXIS data coordinates
         # CRITICAL: event.xdata/ydata might be in secondary axis coordinates!
         if event.inaxes == self.ax:
             # Already in primary axis
             mouse_x, mouse_y = event.xdata, event.ydata
-            print(f"[HOVER] Event in primary axis")
         else:
             # In secondary axis - transform to primary axis coordinates
-            print(f"[HOVER] Event in secondary axis, transforming...")
             # Get the mouse position in pixels
             pixel_x, pixel_y = event.x, event.y
             # Transform to primary axis data coordinates
             inv = self.ax.transData.inverted()
             mouse_x, mouse_y = inv.transform((pixel_x, pixel_y))
-            print(
-                f"[HOVER] Transformed from pixels ({pixel_x}, {pixel_y}) to data ({mouse_x:.2f}, {mouse_y:.2f})"
-            )
 
         if mouse_x is None or mouse_y is None:
-            print(f"[HOVER] Mouse position is None")
             return
-
-        print(f"[HOVER] Mouse at PRIMARY coordinates ({mouse_x:.2f}, {mouse_y:.2f})")
 
         # Find nearest point
         nearest_point, nearest_dist_pixels, plot_index = self._find_nearest_point(
-            mouse_x, mouse_y, event
-        )
-
-        print(
-            f"[HOVER] Nearest point: {nearest_point}, dist={nearest_dist_pixels:.1f}px, threshold={self.snap_distance}px"
+            mouse_x,
+            mouse_y,
+            event,
         )
 
         # Check if point is within snap distance
         if nearest_point is not None and nearest_dist_pixels <= self.snap_distance:
-            print(f"[HOVER] Point within threshold, showing display")
             # Update or create hover display
             self._show_hover_display(nearest_point, plot_index)
             self.canvas.draw_idle()
         else:
-            print(f"[HOVER] No point within threshold")
             # Clear hover display if no point nearby
             if self.hover_marker or self.hover_annotation:
                 self.clear_hover_display()
@@ -209,10 +182,7 @@ class PointHoverManager:
         # Get visible plots
         visible_plots = self.viewer.plot_manager.get_visible_plots()
         if not visible_plots:
-            print(f"[HOVER] No visible plots")
             return None, float("inf"), None
-
-        print(f"[HOVER] Found {len(visible_plots)} visible plots")
 
         # Get axes dimensions for pixel conversion
         bbox = self.ax.get_window_extent()
@@ -237,13 +207,6 @@ class PointHoverManager:
             ylim[1] + y_range * margin,
         )
 
-        print(
-            f"[HOVER] View: X({xlim[0]:.1f}, {xlim[1]:.1f}), Y({ylim[0]:.1f}, {ylim[1]:.1f})"
-        )
-        print(
-            f"[HOVER] Cull: X({cull_xlim[0]:.1f}, {cull_xlim[1]:.1f}), Y({cull_ylim[0]:.1f}, {cull_ylim[1]:.1f})"
-        )
-
         nearest_point = None
         nearest_dist = float("inf")
         nearest_plot_idx = None
@@ -252,8 +215,6 @@ class PointHoverManager:
         for plot_idx, plot in enumerate(visible_plots):
             if len(plot.points) == 0:
                 continue
-
-            print(f"[HOVER] Plot {plot_idx}: {len(plot.points)} total points")
 
             # Apply offset to points
             offset_points = plot.points + np.array([plot.offset_x, plot.offset_y])
@@ -267,7 +228,6 @@ class PointHoverManager:
             )
 
             culled_count = mask.sum()
-            print(f"[HOVER] Plot {plot_idx}: {culled_count} culled points in view")
 
             if not mask.any():
                 continue  # No points in view for this plot
@@ -287,16 +247,11 @@ class PointHoverManager:
             min_idx = np.argmin(distances)
             min_dist = distances[min_idx]
 
-            print(
-                f"[HOVER] Plot {plot_idx}: nearest at {min_dist:.1f}px, point=({culled_points[min_idx][0]:.2f}, {culled_points[min_idx][1]:.2f})"
-            )
-
             if min_dist < nearest_dist:
                 nearest_dist = min_dist
                 nearest_point = culled_points[min_idx]
                 nearest_plot_idx = plot_idx
 
-        print(f"[HOVER] Overall nearest: {nearest_dist:.1f}px")
         return nearest_point, nearest_dist, nearest_plot_idx
 
     def _show_hover_display(
@@ -312,8 +267,6 @@ class PointHoverManager:
             plot_index: Index of the plot containing the point
         """
         x, y = point
-
-        print(f"[HOVER] Showing display at ({x:.6g}, {y:.6g})")
 
         # Remove old marker and annotation
         self.clear_hover_display()
@@ -348,9 +301,6 @@ class PointHoverManager:
         )
 
         self.current_point = point
-        print(
-            f"[HOVER] Display created: marker={self.hover_marker}, annotation={self.hover_annotation}"
-        )
 
     def _on_click(self, event):
         """
@@ -365,7 +315,7 @@ class PointHoverManager:
 
         # Only copy if we have a current hovered point
         if self.current_point is None:
-            print("[HOVER] No point currently hovered - nothing to copy")
+            # print("[HOVER] No point currently hovered - nothing to copy")
             return
 
         # Format coordinates as "x, y"
@@ -373,18 +323,12 @@ class PointHoverManager:
         coord_text = f"{x:.6g}, {y:.6g}"
 
         # Copy to clipboard (middle-click clipboard on Linux, standard clipboard on others)
-        try:
-            from PyQt6.QtGui import QClipboard
-            from PyQt6.QtWidgets import QApplication
+        from PyQt6.QtGui import QClipboard
+        from PyQt6.QtWidgets import QApplication
 
-            clipboard = QApplication.clipboard()
+        clipboard = QApplication.clipboard()
 
-            # Set both selection (middle-click) and clipboard (Ctrl+V) on Linux
-            # On other platforms, selection mode is ignored
-            clipboard.setText(coord_text, QClipboard.Mode.Selection)
-            clipboard.setText(coord_text, QClipboard.Mode.Clipboard)
-
-            print(f"[HOVER] Copied to clipboard: {coord_text}")
-
-        except Exception as e:
-            print(f"[HOVER] Failed to copy to clipboard: {e}")
+        # Set both selection (middle-click) and clipboard (Ctrl+V) on Linux
+        # On other platforms, selection mode is ignored
+        clipboard.setText(coord_text, QClipboard.Mode.Selection)
+        clipboard.setText(coord_text, QClipboard.Mode.Clipboard)

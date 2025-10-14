@@ -265,8 +265,6 @@ class Plot2DInteractions:
 
     def on_mouse_move(self, event):
         """Handle mouse motion for panning."""
-        # REMOVED: hover handling (now done via direct canvas connection in Plot2D)
-
         if not self._panning:
             return
 
@@ -361,8 +359,8 @@ class Plot2DInteractions:
             if key_name in ["X", "Y", "Z"]:
                 self.state.add_key(key_name, has_shift=False)
 
-    # ---------- Qt key events (delegated) ----------
     def keyPressEvent(self, event: QKeyEvent):
+        """Handle Qt key press events."""
         key_name = event.text().upper() if event.text() else None
         has_shift = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
         if key_name:
@@ -379,6 +377,7 @@ class Plot2DInteractions:
             self.viewer.close()
 
     def keyReleaseEvent(self, event: QKeyEvent):
+        """Handle Qt key release events."""
         key_name = event.text().upper() if event.text() else None
         if key_name:
             self.state.remove_key(key_name)

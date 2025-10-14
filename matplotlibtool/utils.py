@@ -10,8 +10,6 @@ from collections.abc import Sequence
 import numpy as np
 from unmp import unmp
 
-from .KeyboardInputManager import KeyboardInputManager
-
 
 def normalize_points(points: np.ndarray, dimensions: int | None = None) -> np.ndarray:
     """

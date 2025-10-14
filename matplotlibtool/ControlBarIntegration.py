@@ -6,9 +6,6 @@ Control Bar Integration Module for PointCloud2DViewerMatplotlib
 
 This module handles the integration between the control bar UI and the viewer,
 including signal connections, control synchronization, and state updates.
-
-UPDATED: Works with new PlotManager (no primary/overlay distinction)
-UPDATED: Added color field dropdown integration
 """
 
 from __future__ import annotations
@@ -44,7 +41,6 @@ class ControlBarIntegration:
 
     def connect_signals(self) -> None:
         """Connect all control bar signals to their handlers."""
-        # Base signal map for standard controls
         signal_map = {
             # File operations
             "addRequested": self.viewer.event_handlers.on_add_files,
@@ -77,24 +73,10 @@ class ControlBarIntegration:
         if hasattr(self.viewer, "secondary_axis"):
             signal_map.update(self.viewer.secondary_axis.connect_signals())
 
-        # Connect all signals
         self.viewer.control_bar_manager.connect_signals(signal_map)
 
     def sync_controls_to_selection(self) -> None:
         """Synchronize control values to currently selected plot(s) or group."""
-        print("[DEBUG] sync_controls_to_selection() called")
-
-        if not self._has_control_bar():
-            print("[DEBUG] No control bar, returning")
-            return
-
-        props = self.viewer.plot_manager.get_selected_plot_properties()
-        print(f"[DEBUG] props: {props}")
-
-        if not props:
-            print("[DEBUG] No props, returning")
-            return
-
         if not self._has_control_bar():
             return
 
@@ -122,40 +104,33 @@ class ControlBarIntegration:
         """Sync plot-specific properties to controls (handles mixed values)."""
         manager = self.viewer.control_bar_manager
 
-        # Handle size (numeric or "mixed")
         if props["size"] == "mixed":
             manager.set_point_size_mixed()
         else:
             manager.set_point_size(props["size"])
 
-        # Handle line width (numeric or "mixed")
         if props.get("line_width") == "mixed":
             manager.set_line_width_mixed()
         elif "line_width" in props:
             manager.set_line_width(props["line_width"])
 
-        # Handle lines checkbox (bool or "mixed")
         if props["draw_lines"] == "mixed":
             manager.set_lines_tristate()
         else:
             manager.set_lines_checked(props["draw_lines"])
 
-        # Handle colormap (string or "mixed")
         if props["colormap"] == "mixed":
             manager.set_selected_palette_mixed()
         else:
             manager.set_selected_palette(props["colormap"])
 
-        # Handle palette enabled
         manager.set_palette_enabled(props["has_color_data"] not in [False, "mixed"])
 
-        # Handle offset (numeric or "mixed")
         if props["offset_x"] == "mixed" or props["offset_y"] == "mixed":
             manager.set_offset_mixed()
         else:
             manager.set_offset(props["offset_x"], props["offset_y"])
 
-        # Handle visibility (bool or "mixed")
         if props["visible"] == "mixed":
             manager.set_visibility_tristate()
         else:
@@ -163,10 +138,7 @@ class ControlBarIntegration:
 
     def _sync_color_field_dropdown(self) -> None:
         """Synchronize color field dropdown with current selection."""
-        print("[DEBUG] _sync_color_field_dropdown() called")
-
         if not self._has_control_bar():
-            print("[DEBUG] No control bar")
             return
 
         # Check if we have a single plot selected or group
@@ -174,21 +146,16 @@ class ControlBarIntegration:
             group_id = self.viewer.plot_manager.selected_group_id
             group_info = self.viewer.plot_manager.get_group_info(group_id)
             if not group_info or not group_info.plot_indices:
-                print("[DEBUG] No group info or plot indices")
                 return
 
-            # Use the first plot in the group to get field names
             plot_index = group_info.plot_indices[0]
-            print(f"[DEBUG] Group selected, using plot {plot_index}")
         else:
             plot_index = self.viewer.plot_manager.selected_plot_index
-            print(f"[DEBUG] Individual plot selected: {plot_index}")
 
         # Get the array index for this plot to find available fields
         array_index = self.viewer.array_field_integration._get_array_index_for_plot(
             plot_index
         )
-        print(f"[DEBUG] array_index: {array_index}")
 
         if (
             array_index is not None
@@ -203,34 +170,23 @@ class ControlBarIntegration:
                 data = array_info["data"]
                 field_names = list(data.dtype.names)
 
-                # Get current color field from plot properties
                 current_color_field = array_info["properties"].get("color_field")
 
-                print(f"[DEBUG] field_names: {field_names}")
-                print(f"[DEBUG] current_color_field: {current_color_field}")
-
-                # Populate the dropdown
                 self.viewer.control_bar_manager.populate_color_field_combo(
                     field_names, current_color_field
                 )
                 return
 
-        print("[DEBUG] No valid selection - clearing dropdown")
         # No valid selection - clear dropdown
         self.viewer.control_bar_manager.populate_color_field_combo([], None)
 
     def refresh_plot_selector(self) -> None:
         """Update plot selector combobox with current arrays and groups."""
-        print("[DEBUG] refresh_plot_selector() called")
-
-        # Use new hierarchical population method
         self.viewer.control_bar_manager.populate_hierarchical_dropdown(
             self.viewer.plot_manager
         )
 
-        # Force UI update
         combo = self.viewer.control_bar_manager.get_widget("plot_combo")
-        print(f"[DEBUG] Dropdown has {combo.count()} items")
         combo.update()
         combo.repaint()
 
@@ -249,17 +205,14 @@ class ControlBarIntegration:
 
     def set_initial_state(self) -> None:
         """Set initial control states after UI is created."""
-        # Refresh plot selector
         self.refresh_plot_selector()
 
         # Sync controls to current selection (if any plots exist)
         if self.viewer.plot_manager.get_plot_count() > 0:
             self.sync_controls_to_selection()
 
-        # Set acceleration value
         self.viewer.control_bar_manager.set_accel(self.viewer.acceleration)
 
-        # Set dark mode checkbox
         self.viewer.control_bar_manager.set_dark_mode_checked(self.viewer.dark_mode)
 
     def update_info_text(self, text: str) -> None:
@@ -298,12 +251,10 @@ class ControlBarIntegration:
         if not self._has_control_bar():
             return
 
-        # Sync axes grid color swatch
         self.viewer.control_bar_manager.set_axes_grid_color_swatch(
             self.viewer.axes_grid_color
         )
 
-        # Sync ADC/2^N grid color swatch
         self.viewer.control_bar_manager.set_adc_grid_color_swatch(
             self.viewer.grid_color
         )
