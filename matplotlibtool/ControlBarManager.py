@@ -4,9 +4,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Dict
-from typing import List
-from typing import Optional
 
 from PyQt6.QtCore import QObject
 from PyQt6.QtCore import Qt
@@ -14,8 +11,6 @@ from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import QCheckBox
 from PyQt6.QtWidgets import QComboBox
 from PyQt6.QtWidgets import QDoubleSpinBox
-from PyQt6.QtWidgets import QFormLayout
-from PyQt6.QtWidgets import QGroupBox
 from PyQt6.QtWidgets import QHBoxLayout
 from PyQt6.QtWidgets import QLabel
 from PyQt6.QtWidgets import QLineEdit
@@ -212,13 +207,15 @@ class ControlBarManager:
         for group_info in groups:
             grouped_plot_indices.update(group_info.plot_indices)
 
-        selection_index = 0
+        selection_index = -1  # Will be set to last group if no specific selection
         current_index = 0
+        last_group_index = -1  # Track the last group added
 
         # Add groups with their plots
         for group_info in groups:
+            # Add group header
             group_label = (
-                f"📁 {group_info.group_name} ({len(group_info.plot_indices)} plots)"
+                f"📦 {group_info.group_name} ({len(group_info.plot_indices)} plots)"
             )
             combo.addItem(group_label)
             combo.setItemData(current_index, ("group", group_info.group_id))
@@ -229,7 +226,65 @@ class ControlBarManager:
             ):
                 selection_index = current_index
 
+            last_group_index = current_index  # Track last group
             current_index += 1
+
+            # Add individual plots in this group (indented)
+            for plot_index in group_info.plot_indices:
+                if plot_index < len(plot_manager.plots):
+                    plot = plot_manager.plots[plot_index]
+                    custom_name = plot_manager.plot_names.get(plot_index, None)
+
+                    if custom_name:
+                        plot_label = f"  └─ {custom_name} ({len(plot.points):,} pts)"
+                    else:
+                        plot_label = (
+                            f"  └─ Plot {plot_index + 1} ({len(plot.points):,} pts)"
+                        )
+
+                    combo.addItem(plot_label)
+                    combo.setItemData(current_index, ("plot", plot_index))
+
+                    if (
+                        current_selection_type == "plot"
+                        and current_selection_id == plot_index
+                    ):
+                        selection_index = current_index
+
+                    current_index += 1
+
+        # Add ungrouped plots (if any)
+        for plot_index in range(len(plot_manager.plots)):
+            if plot_index not in grouped_plot_indices:
+                plot = plot_manager.plots[plot_index]
+                custom_name = plot_manager.plot_names.get(plot_index, None)
+
+                if custom_name:
+                    plot_label = f"{custom_name} ({len(plot.points):,} pts)"
+                else:
+                    plot_label = f"Plot {plot_index + 1} ({len(plot.points):,} pts)"
+
+                combo.addItem(plot_label)
+                combo.setItemData(current_index, ("plot", plot_index))
+
+                if (
+                    current_selection_type == "plot"
+                    and current_selection_id == plot_index
+                ):
+                    selection_index = current_index
+
+                current_index += 1
+
+        # If no specific selection was found, default to last group
+        if selection_index == -1 and last_group_index != -1:
+            selection_index = last_group_index
+        elif selection_index == -1:
+            selection_index = 0  # Fallback to first item if no groups
+
+        # Set the current selection
+        combo.setCurrentIndex(selection_index)
+
+        combo.blockSignals(False)
 
     def _create_row1(self) -> QWidget:
         """Create first control row: Add, Plot/Group selector, Visible, Accel, Size, Lines, Palette, Color Field."""
@@ -651,7 +706,7 @@ class ControlBarManager:
         """Populate palette combobox with grouped palettes."""
         combo.clear()
         for category, palettes in self.palette_groups.items():
-            combo.addItem(f"───『{category}』───")
+            combo.addItem(f"───〖{category}〗───")
             idx = combo.count() - 1
             item = combo.model().item(idx)
             item.setEnabled(False)
@@ -810,6 +865,23 @@ class ControlBarManager:
         if spin:
             spin.blockSignals(True)
             spin.setValue(value)
+            spin.blockSignals(False)
+
+    def set_line_width(self, width: float):
+        """Set line width spinbox value."""
+        spin = self.widgets.get("line_width_spin")
+        if spin:
+            spin.blockSignals(True)
+            spin.setValue(width)
+            spin.blockSignals(False)
+
+    def set_line_width_mixed(self):
+        """Set line width to mixed state."""
+        spin = self.widgets.get("line_width_spin")
+        if spin:
+            spin.blockSignals(True)
+            spin.setSpecialValueText("Mixed")
+            spin.setValue(spin.minimum())
             spin.blockSignals(False)
 
     def set_lines_checked(self, checked: bool):
@@ -1081,92 +1153,6 @@ class ControlBarManager:
 
         return controls_widget
 
-    def update_field_visibility_row(self, field_visibility_widget) -> None:
-        """
-        Update the field visibility row widget after initial creation.
-
-        Args:
-            field_visibility_widget: The field visibility widget to use
-        """
-        if "field_visibility_row" in self.widgets:
-            old_widget = self.widgets["field_visibility_row"]
-
-            main_layout = self.layouts.get("main")
-            if main_layout:
-                for i in range(main_layout.count()):
-                    if main_layout.itemAt(i).widget() == old_widget:
-                        main_layout.takeAt(i)
-                        old_widget.deleteLater()
-
-                        main_layout.insertWidget(i, field_visibility_widget)
-
-                        self.widgets["field_visibility_row"] = field_visibility_widget
-
-                        if (
-                            hasattr(field_visibility_widget, "layout")
-                            and field_visibility_widget.layout()
-                        ):
-                            self.layouts["row5"] = field_visibility_widget.layout()
-
-                        print("[INFO] Field visibility row widget updated")
-                        break
-
-    def set_point_size_mixed(self):
-        """Set point size spinbox to show mixed state."""
-        spin = self.widgets.get("size_spin")
-        if spin:
-            spin.blockSignals(True)
-            spin.setSpecialValueText("Mixed")
-            spin.setValue(spin.minimum())
-            spin.blockSignals(False)
-
-    def set_lines_tristate(self):
-        """Set lines checkbox to tristate (partially checked)."""
-        chk = self.widgets.get("lines_chk")
-        if chk:
-            chk.blockSignals(True)
-            chk.setTristate(True)
-            chk.setCheckState(Qt.CheckState.PartiallyChecked)
-            chk.blockSignals(False)
-
-    def set_visibility_tristate(self):
-        """Set visibility checkbox to tristate (partially checked)."""
-        chk = self.widgets.get("visible_chk")
-        if chk:
-            chk.blockSignals(True)
-            chk.setTristate(True)
-            chk.setCheckState(Qt.CheckState.PartiallyChecked)
-            chk.blockSignals(False)
-
-    def set_selected_palette_mixed(self):
-        """Set palette combobox to show mixed state."""
-        combo = self.widgets.get("palette_combo")
-        if combo:
-            combo.blockSignals(True)
-            mixed_index = combo.findText("(Mixed)")
-            if mixed_index < 0:
-                combo.insertItem(0, "(Mixed)")
-                mixed_index = 0
-            combo.setCurrentIndex(mixed_index)
-            combo.blockSignals(False)
-
-    def set_offset_mixed(self):
-        """Set offset spinboxes to show mixed state."""
-        x_spin = self.widgets.get("offset_x_spin")
-        y_spin = self.widgets.get("offset_y_spin")
-
-        if x_spin:
-            x_spin.blockSignals(True)
-            x_spin.setSpecialValueText("Mixed")
-            x_spin.setValue(x_spin.minimum())
-            x_spin.blockSignals(False)
-
-        if y_spin:
-            y_spin.blockSignals(True)
-            y_spin.setSpecialValueText("Mixed")
-            y_spin.setValue(y_spin.minimum())
-            y_spin.blockSignals(False)
-
     def create_six_row_controls(
         self,
         field_visibility_widget=None,
@@ -1247,6 +1233,36 @@ class ControlBarManager:
 
         return controls_widget
 
+    def update_field_visibility_row(self, field_visibility_widget) -> None:
+        """
+        Update the field visibility row widget after initial creation.
+
+        Args:
+            field_visibility_widget: The field visibility widget to use
+        """
+        if "field_visibility_row" in self.widgets:
+            old_widget = self.widgets["field_visibility_row"]
+
+            main_layout = self.layouts.get("main")
+            if main_layout:
+                for i in range(main_layout.count()):
+                    if main_layout.itemAt(i).widget() == old_widget:
+                        main_layout.takeAt(i)
+                        old_widget.deleteLater()
+
+                        main_layout.insertWidget(i, field_visibility_widget)
+
+                        self.widgets["field_visibility_row"] = field_visibility_widget
+
+                        if (
+                            hasattr(field_visibility_widget, "layout")
+                            and field_visibility_widget.layout()
+                        ):
+                            self.layouts["row5"] = field_visibility_widget.layout()
+
+                        print("[INFO] Field visibility row widget updated")
+                        break
+
     def update_field_scale_row(self, field_scale_widget) -> None:
         """
         Update the field scale row widget after initial creation.
@@ -1277,19 +1293,58 @@ class ControlBarManager:
                         print("[INFO] Field scale row widget updated")
                         break
 
-    def set_line_width(self, width: float):
-        """Set line width spinbox value."""
-        spin = self.widgets.get("line_width_spin")
-        if spin:
-            spin.blockSignals(True)
-            spin.setValue(width)
-            spin.blockSignals(False)
-
-    def set_line_width_mixed(self):
-        """Set line width to mixed state."""
-        spin = self.widgets.get("line_width_spin")
+    def set_point_size_mixed(self):
+        """Set point size spinbox to show mixed state."""
+        spin = self.widgets.get("size_spin")
         if spin:
             spin.blockSignals(True)
             spin.setSpecialValueText("Mixed")
             spin.setValue(spin.minimum())
             spin.blockSignals(False)
+
+    def set_lines_tristate(self):
+        """Set lines checkbox to tristate (partially checked)."""
+        chk = self.widgets.get("lines_chk")
+        if chk:
+            chk.blockSignals(True)
+            chk.setTristate(True)
+            chk.setCheckState(Qt.CheckState.PartiallyChecked)
+            chk.blockSignals(False)
+
+    def set_visibility_tristate(self):
+        """Set visibility checkbox to tristate (partially checked)."""
+        chk = self.widgets.get("visible_chk")
+        if chk:
+            chk.blockSignals(True)
+            chk.setTristate(True)
+            chk.setCheckState(Qt.CheckState.PartiallyChecked)
+            chk.blockSignals(False)
+
+    def set_selected_palette_mixed(self):
+        """Set palette combobox to show mixed state."""
+        combo = self.widgets.get("palette_combo")
+        if combo:
+            combo.blockSignals(True)
+            mixed_index = combo.findText("(Mixed)")
+            if mixed_index < 0:
+                combo.insertItem(0, "(Mixed)")
+                mixed_index = 0
+            combo.setCurrentIndex(mixed_index)
+            combo.blockSignals(False)
+
+    def set_offset_mixed(self):
+        """Set offset spinboxes to show mixed state."""
+        x_spin = self.widgets.get("offset_x_spin")
+        y_spin = self.widgets.get("offset_y_spin")
+
+        if x_spin:
+            x_spin.blockSignals(True)
+            x_spin.setSpecialValueText("Mixed")
+            x_spin.setValue(x_spin.minimum())
+            x_spin.blockSignals(False)
+
+        if y_spin:
+            y_spin.blockSignals(True)
+            y_spin.setSpecialValueText("Mixed")
+            y_spin.setValue(y_spin.minimum())
+            y_spin.blockSignals(False)

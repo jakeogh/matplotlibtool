@@ -4,35 +4,35 @@
 """
 Plot2DRenderer.py - Pure Matplotlib/NumPy renderer for 2D point cloud visualization
 
-Updated for efficient axis scaling approach with global color range support.
-No Qt imports. Uses original point coordinates - scaling handled via axis limits.
-Does NOT set aspect ratio (handled by Plot2D._update_plot()).
+OPTIMIZED VERSION WITH PERFORMANCE DEBUG PRINTS
 """
 
 from __future__ import annotations
 
+import time
 from collections.abc import Sequence
 
 import numpy as np
 from matplotlib.axes import Axes
+from matplotlib.collections import LineCollection
+from matplotlib.lines import Line2D
 
 
 class Matplotlib2DRenderer:
     """
     Pure Matplotlib/NumPy renderer for PointCloud2DViewerMatplotlib.
-    Updated for efficient axis scaling approach with global color range support.
 
-    - No Qt imports.
-    - Accepts plots as dataclass-like objects (duck-typed)
-    - Uses original point coordinates - scaling is handled via axis limits.
-    - Does NOT set aspect ratio (handled by Plot2D._update_plot())
-    - Supports global color range for consistent coloring across plot groups
+    OPTIMIZED with performance debugging enabled.
     """
 
     def __init__(self):
         """Initialize the renderer with artist tracking."""
         self.plot_initialized = False
         self.grid_line_artists = []
+
+        # Batch line collection references for fast rendering
+        self._batch_solid_line_collection = None
+        self._batch_colored_line_collection = None
 
     def update_all_plots(
         self,
@@ -51,38 +51,37 @@ class Matplotlib2DRenderer:
         in_zoom_box: bool,
     ) -> None:
         """
-        Update all plots in the viewer.
-
-        Args:
-            ax: Matplotlib axes
-            plots: List of plot objects (Overlay instances)
-            auto_aspect: If True, use auto aspect ratio (kept for API compat)
-            view_xlim: X axis limits
-            view_ylim: Y axis limits
-            grid_enabled: Whether grid is enabled
-            grid_power: Grid spacing power (2^N)
-            grid_color: Grid line color
-            axes_grid_color: Axes grid color
-            disable_antialiasing: Whether to disable antialiasing
-            max_display_points: Maximum points to display per plot
-            in_zoom_box: Whether currently in zoom box mode (kept for API compat)
+        Update all plots - WITH PERFORMANCE DEBUG PRINTS.
         """
+        t_start = time.perf_counter()
+        print(f"\n[PERF] ========== update_all_plots START ==========")
+        print(f"[PERF] Number of plots: {len(plots)}")
+
+        # Count visible plots and plots with lines
+        visible_count = sum(
+            1 for p in plots if getattr(p, "visible", True) and len(p.points) > 0
+        )
+        lines_count = sum(
+            1
+            for p in plots
+            if getattr(p, "visible", True) and len(p.points) > 0 and p.draw_lines
+        )
+        print(f"[PERF] Visible plots: {visible_count}, with lines: {lines_count}")
+
+        # Initialize axes styling on first call
         if not self.plot_initialized:
             self._initialize_axes(ax, axes_grid_color)
             self.plot_initialized = True
 
-        ax.clear()
+        # Track which artists should remain visible
+        active_scatter_artists = set()
 
-        # Reapply styling after clear
-        ax.set_facecolor("black")
-        ax.grid(
-            True,
-            color=axes_grid_color,
-            alpha=0.3,
-        )
-        ax.tick_params(colors="white")
+        # Clear and redraw grid
+        t_grid_start = time.perf_counter()
+        for artist in self.grid_line_artists:
+            artist.remove()
+        self.grid_line_artists.clear()
 
-        # Draw grid if enabled
         if grid_enabled and grid_power > 0:
             self._draw_grid_lines(
                 ax,
@@ -91,15 +90,33 @@ class Matplotlib2DRenderer:
                 view_ylim=view_ylim,
                 grid_color=grid_color,
             )
+        t_grid = time.perf_counter() - t_grid_start
+        print(f"[PERF] Grid setup: {t_grid*1000:.1f}ms")
 
-        # Draw all plots
+        # ====================================================================
+        # BATCH LINE COLLECTION
+        # ====================================================================
+        all_line_segments = []
+        all_line_colors = []
+        all_line_widths = []
+
+        colored_line_segments = []
+        colored_line_arrays = []
+        colored_line_cmap = None
+
+        # Process each plot
+        t_process_start = time.perf_counter()
         for i, plot in enumerate(plots):
             visible = getattr(
                 plot,
                 "visible",
                 True,
             )
+
             if not visible or len(plot.points) == 0:
+                if plot.scatter_artist is not None:
+                    plot.scatter_artist.set_visible(False)
+                plot.line_artist = None
                 continue
 
             # Apply offset
@@ -118,81 +135,182 @@ class Matplotlib2DRenderer:
                 display_points = points
                 display_colors = plot.color_data
 
-            # Draw scatter
+            # ================================================================
+            # SCATTER ARTIST
+            # ================================================================
             if display_colors is not None and len(display_colors) > 0:
-                # Color data should already be normalized to [0, 1] by Plot2D._update_plot()
-                scatter = ax.scatter(
-                    display_points[:, 0],
-                    display_points[:, 1],
-                    c=display_colors,
-                    s=plot.size,
-                    cmap=plot.cmap,
-                    alpha=0.8,
-                    rasterized=not disable_antialiasing,
-                    vmin=0.0,
-                    vmax=1.0,
-                )
-                # Store artist reference
-                plot.scatter_artist = scatter
-            else:
-                scatter = ax.scatter(
-                    display_points[:, 0],
-                    display_points[:, 1],
-                    c=getattr(plot, "color", "white"),
-                    s=plot.size,
-                    alpha=0.8,
-                    rasterized=not disable_antialiasing,
-                )
-                plot.scatter_artist = scatter
-
-            # Draw lines if enabled
-            if plot.draw_lines and len(display_points) > 1:
-                if plot.line_color is not None:
-                    # Solid color line
-                    lines = ax.plot(
+                if plot.scatter_artist is None:
+                    scatter = ax.scatter(
                         display_points[:, 0],
                         display_points[:, 1],
-                        color=plot.line_color,
-                        linewidth=plot.line_width,
-                        alpha=0.6,
-                    )
-                    plot.line_artist = lines[0] if lines else None
-                elif display_colors is not None and len(display_colors) > 0:
-                    # Colored line segments
-                    from matplotlib.collections import LineCollection
-
-                    segments = np.array(
-                        [display_points[:-1], display_points[1:]]
-                    ).transpose(
-                        1,
-                        0,
-                        2,
-                    )
-                    segment_colors = (display_colors[:-1] + display_colors[1:]) / 2.0
-
-                    lc = LineCollection(
-                        segments,
-                        array=segment_colors,
+                        c=display_colors,
+                        s=plot.size,
                         cmap=plot.cmap,
-                        linewidths=plot.line_width,
-                        alpha=0.6,
+                        alpha=0.8,
+                        rasterized=not disable_antialiasing,
+                        vmin=0.0,
+                        vmax=1.0,
                     )
-                    lc.set_clim(0.0, 1.0)
-                    ax.add_collection(lc)
-                    plot.line_artist = lc
+                    plot.scatter_artist = scatter
+                    scatter._pcloudviewer_managed = True
                 else:
-                    # Default gray line
-                    lines = ax.plot(
+                    plot.scatter_artist.set_offsets(display_points)
+                    plot.scatter_artist.set_array(display_colors)
+                    plot.scatter_artist.set_sizes([plot.size])
+                    plot.scatter_artist.set_cmap(plot.cmap)
+                    plot.scatter_artist.set_alpha(0.8)
+                    plot.scatter_artist.set_clim(0.0, 1.0)
+                    plot.scatter_artist.set_visible(True)
+
+                active_scatter_artists.add(plot.scatter_artist)
+            else:
+                if plot.scatter_artist is None:
+                    scatter = ax.scatter(
                         display_points[:, 0],
                         display_points[:, 1],
-                        color="gray",
-                        linewidth=plot.line_width,
-                        alpha=0.6,
+                        c=getattr(plot, "color", "white"),
+                        s=plot.size,
+                        alpha=0.8,
+                        rasterized=not disable_antialiasing,
                     )
-                    plot.line_artist = lines[0] if lines else None
+                    plot.scatter_artist = scatter
+                    scatter._pcloudviewer_managed = True
+                else:
+                    plot.scatter_artist.set_offsets(display_points)
+                    plot.scatter_artist.set_sizes([plot.size])
+                    plot.scatter_artist.set_facecolors(getattr(plot, "color", "white"))
+                    plot.scatter_artist.set_alpha(0.8)
+                    plot.scatter_artist.set_visible(True)
 
+                active_scatter_artists.add(plot.scatter_artist)
+
+            # ================================================================
+            # LINES - BATCH
+            # ================================================================
+            if plot.draw_lines and len(display_points) > 1:
+                # Create line segments for this plot
+                segments = np.array(
+                    [display_points[:-1], display_points[1:]]
+                ).transpose(
+                    1,
+                    0,
+                    2,
+                )
+
+                if plot.line_color is not None:
+                    all_line_segments.extend(segments)
+                    all_line_colors.extend([plot.line_color] * len(segments))
+                    all_line_widths.extend([plot.line_width] * len(segments))
+
+                elif display_colors is not None and len(display_colors) > 0:
+                    segment_colors = (display_colors[:-1] + display_colors[1:]) / 2.0
+                    colored_line_segments.extend(segments)
+                    colored_line_arrays.extend(segment_colors)
+                    if colored_line_cmap is None:
+                        colored_line_cmap = plot.cmap
+
+                else:
+                    all_line_segments.extend(segments)
+                    all_line_colors.extend(["gray"] * len(segments))
+                    all_line_widths.extend([plot.line_width] * len(segments))
+
+            plot.line_artist = None
+
+        t_process = time.perf_counter() - t_process_start
+        print(f"[PERF] Process plots loop: {t_process*1000:.1f}ms")
+        print(f"[PERF] Collected {len(all_line_segments)} solid line segments")
+        print(f"[PERF] Collected {len(colored_line_segments)} colored line segments")
+
+        # ====================================================================
+        # CREATE BATCH LINE COLLECTIONS
+        # ====================================================================
+        t_cleanup_start = time.perf_counter()
+
+        # Remove old batch line collections
+        if self._batch_solid_line_collection is not None:
+            if self._batch_solid_line_collection in ax.collections:
+                self._batch_solid_line_collection.remove()
+            self._batch_solid_line_collection = None
+
+        if self._batch_colored_line_collection is not None:
+            if self._batch_colored_line_collection in ax.collections:
+                self._batch_colored_line_collection.remove()
+            self._batch_colored_line_collection = None
+
+        t_cleanup = time.perf_counter() - t_cleanup_start
+        print(f"[PERF] Cleanup old collections: {t_cleanup*1000:.1f}ms")
+
+        # Create single LineCollection for all solid-color lines
+        t_solid_start = time.perf_counter()
+        if all_line_segments:
+            unique_widths = set(all_line_widths)
+            if len(unique_widths) == 1:
+                lw = all_line_widths[0]
+            else:
+                lw = all_line_widths
+
+            print(
+                f"[PERF] Creating LineCollection with {len(all_line_segments)} segments..."
+            )
+            lc = LineCollection(
+                all_line_segments,
+                colors=all_line_colors,
+                linewidths=lw,
+                alpha=0.6,
+                rasterized=not disable_antialiasing,
+            )
+            print(f"[PERF] LineCollection created, adding to axes...")
+            ax.add_collection(lc)
+            self._batch_solid_line_collection = lc
+            print(f"[PERF] LineCollection added to axes")
+
+        t_solid = time.perf_counter() - t_solid_start
+        print(f"[PERF] Create solid LineCollection: {t_solid*1000:.1f}ms")
+
+        # Create single LineCollection for all colored lines
+        t_colored_start = time.perf_counter()
+        if colored_line_segments:
+            lc = LineCollection(
+                colored_line_segments,
+                array=np.array(colored_line_arrays),
+                cmap=colored_line_cmap,
+                linewidths=1.0,
+                alpha=0.6,
+                rasterized=not disable_antialiasing,
+            )
+            lc.set_clim(0.0, 1.0)
+            ax.add_collection(lc)
+            self._batch_colored_line_collection = lc
+
+        t_colored = time.perf_counter() - t_colored_start
+        print(f"[PERF] Create colored LineCollection: {t_colored*1000:.1f}ms")
+
+        # ====================================================================
+        # Cleanup: Remove orphaned scatter artists
+        # ====================================================================
+        t_scatter_cleanup_start = time.perf_counter()
+        for artist in list(ax.collections):
+            if hasattr(artist, "_pcloudviewer_managed"):
+                if artist not in active_scatter_artists:
+                    if (
+                        artist is not self._batch_solid_line_collection
+                        and artist is not self._batch_colored_line_collection
+                    ):
+                        artist.remove()
+
+        t_scatter_cleanup = time.perf_counter() - t_scatter_cleanup_start
+        print(f"[PERF] Scatter cleanup: {t_scatter_cleanup*1000:.1f}ms")
+
+        # Set axis limits
+        t_limits_start = time.perf_counter()
         ax.set_xlim(*view_xlim)
         ax.set_ylim(*view_ylim)
+        t_limits = time.perf_counter() - t_limits_start
+        print(f"[PERF] Set axis limits: {t_limits*1000:.1f}ms")
+
+        t_total = time.perf_counter() - t_start
+        print(f"[PERF] TOTAL update_all_plots: {t_total*1000:.1f}ms")
+        print(f"[PERF] ========== update_all_plots END ==========\n")
 
     def _initialize_axes(
         self,
@@ -208,6 +326,10 @@ class Matplotlib2DRenderer:
             alpha=0.3,
         )
         ax.tick_params(colors="white")
+
+        # Clear batch line collection references
+        self._batch_solid_line_collection = None
+        self._batch_colored_line_collection = None
 
     def _draw_grid_lines(
         self,
@@ -232,12 +354,13 @@ class Matplotlib2DRenderer:
         count = 0
 
         while y <= y_max and count < max_lines:
-            ax.axhline(
+            line = ax.axhline(
                 y=y,
                 color=grid_color,
                 linewidth=1.0,
                 alpha=0.6,
                 zorder=0.5,
             )
+            self.grid_line_artists.append(line)
             y += spacing
             count += 1

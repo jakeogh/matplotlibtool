@@ -383,9 +383,9 @@ class ArrayFieldIntegration:
             plot_index = self.viewer.plot_manager.add_plot(
                 points=transformed_points,
                 color_data=color_data,
-                colormap=properties.get("colormap", "turbo"),
+                colormap=properties.get("colormap", self.viewer.default_colormap),
                 point_size=properties.get("point_size", 2.0),
-                draw_lines=properties.get("draw_lines", False),
+                draw_lines=properties.get("draw_lines", self.viewer.default_draw_lines),
                 line_color=properties.get("line_color", None),
                 line_width=properties.get("line_width", 1.0),
                 offset_x=properties.get("x_offset", 0.0),

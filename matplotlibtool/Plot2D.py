@@ -80,6 +80,8 @@ class Plot2D(QMainWindow):
         disable_antialiasing: bool = False,
         render_image: Path | None = None,
         figsize: tuple[float, float] | None = None,
+        colormap: str = "turbo",
+        draw_lines: bool = False,
     ):
         """
         Initialize empty viewer with global configuration.
@@ -108,6 +110,8 @@ class Plot2D(QMainWindow):
         self.auto_aspect = auto_aspect
         self.disable_antialiasing = disable_antialiasing
         self.dark_mode = dark_mode
+        self.default_colormap = colormap
+        self.default_draw_lines = draw_lines
 
         # State
         self.state = InputState()
@@ -126,6 +130,11 @@ class Plot2D(QMainWindow):
 
         # Initialize coordinate transformation engine
         self.transform_engine = CoordinateTransformEngine(dimensions=2)
+
+        # NEW: Initialize plot data processor (shared validation/transformation logic)
+        from .PlotDataProcessor import PlotDataProcessor
+
+        self.plot_processor = PlotDataProcessor(self)
 
         # Initialize plot manager WITH NO PLOTS
         self.plot_manager = PlotManager(transform_engine=self.transform_engine)
@@ -380,9 +389,9 @@ class Plot2D(QMainWindow):
         center: bool = False,
         x_offset: float = 0.0,
         y_offset: float = 0.0,
-        colormap: str = "turbo",
+        colormap: None | str = None,
         point_size: float = 0.2,
-        draw_lines: bool = False,
+        draw_lines: bool | None = None,
         line_color: str | None = None,
         line_width: float = 1.0,
         visible: bool = True,
@@ -407,9 +416,9 @@ class Plot2D(QMainWindow):
             center: If True, center points at origin
             x_offset: X offset for the plot
             y_offset: Y offset for the plot
-            colormap: Colormap for the plot
+            colormap: Colormap for the plot (None = use viewer default)
             point_size: Point size for the plot
-            draw_lines: Whether to draw lines between points
+            draw_lines: Whether to draw lines between points (None = use viewer default)
             line_color: Color for lines (None = use point colors)
             line_width: Width of lines
             visible: Whether plot is initially visible
@@ -421,50 +430,15 @@ class Plot2D(QMainWindow):
             dict: Transform parameters for the added plot
         """
         try:
-            # Validate input - must be structured array
-            if not isinstance(data, np.ndarray):
-                raise TypeError("data must be a numpy array")
-
-            if data.dtype.names is None:
-                raise TypeError("data must be a structured array with named fields")
-
-            # Validate normalize/center combination
-            if normalize and center:
-                raise ValueError("Cannot specify both normalize=True and center=True")
-
-            field_names = data.dtype.names
-            if len(field_names) < 2:
-                raise ValueError(
-                    f"Structured array must have at least 2 fields. "
-                    f"Found {len(field_names)}: {field_names}"
-                )
-
-            if x_field not in field_names:
-                raise ValueError(
-                    f"X field '{x_field}' not found in data. Available: {field_names}"
-                )
-
-            # Validate Y field
-            if y_field not in field_names:
-                raise ValueError(
-                    f"Y field '{y_field}' not found in data. Available: {field_names}"
-                )
-
-            # Calculate global color range for auto-group creation
-            global_color_min = None
-            global_color_max = None
-            if color_field is not None and color_field in field_names:
-                color_data_for_range = data[color_field].astype(np.float32)
-                if len(color_data_for_range) > 0:
-                    global_color_min = float(color_data_for_range.min())
-                    global_color_max = float(color_data_for_range.max())
-
-            # Register this array with the field manager
-            array_index = self.array_field_integration.register_array(
-                data=data,
+            # ============================================================
+            # REFACTORED: Use shared PlotDataProcessor for all validation
+            # and transformation logic (eliminates duplication)
+            # ============================================================
+            processed = self.plot_processor.process_structured_array(
+                data,
                 x_field=x_field,
                 y_field=y_field,
-                array_name=plot_name,
+                color_field=color_field,
                 normalize=normalize,
                 center=center,
                 x_offset=x_offset,
@@ -476,72 +450,55 @@ class Plot2D(QMainWindow):
                 line_width=line_width,
                 visible=visible,
                 transform_params=transform_params,
+                plot_name=plot_name,
+            )
+            # ============================================================
+
+            # Calculate global color range for auto-group creation
+            global_color_min = None
+            global_color_max = None
+            if processed.color_data is not None and len(processed.color_data) > 0:
+                global_color_min = float(processed.color_data.min())
+                global_color_max = float(processed.color_data.max())
+
+            # Register this array with the field manager
+            array_index = self.array_field_integration.register_array(
+                data=data,
+                x_field=x_field,
+                y_field=y_field,
+                array_name=processed.plot_name,
+                normalize=normalize,
+                center=center,
+                x_offset=x_offset,
+                y_offset=y_offset,
+                colormap=processed.colormap,
+                point_size=processed.point_size,
+                draw_lines=processed.draw_lines,
+                line_color=processed.line_color,
+                line_width=processed.line_width,
+                visible=processed.visible,
+                transform_params=processed.transform_params,
                 color_field=color_field,
                 global_color_min=global_color_min,
                 global_color_max=global_color_max,
             )
 
-            # Extract X and Y data
-            x_data = data[x_field].astype(np.float32)
-            y_data = data[y_field].astype(np.float32)
-
-            # Create points array
-            points_xy = np.column_stack((x_data, y_data))
-
-            # Extract color data if available
-            color_data = (
-                data[color_field].astype(np.float32)
-                if color_field is not None
-                else None
-            )
-
-            # Generate plot name
+            # Generate plot name (use y_field if not provided)
             generated_name = y_field if plot_name is None else plot_name
-
-            plot_index = len(self.plot_manager.plots)
-            print(
-                f"[INFO] Adding plot {plot_index}: {generated_name} ({len(points_xy):,} points)"
-            )
-            print(
-                f"[INFO] Using fields: x='{x_field}', y='{y_field}', color='{color_field if color_field else 'None'}'"
-            )
-
-            # Apply coordinate transformation
-            if transform_params is not None:
-                from .CoordinateTransformEngine import TransformParams
-
-                transform_params_obj = TransformParams.from_dict(transform_params)
-                transformed_points = self.transform_engine.apply_transform(
-                    points_xy, transform_params_obj
-                )
-                result_transform_params = transform_params.copy()
-            elif normalize:
-                transformed_points, params = self.transform_engine.normalize_points(
-                    points_xy
-                )
-                result_transform_params = params.to_dict()
-            elif center:
-                transformed_points, params = self.transform_engine.center_points(
-                    points_xy
-                )
-                result_transform_params = params.to_dict()
-            else:
-                transformed_points, params = self.transform_engine.raw_points(points_xy)
-                result_transform_params = params.to_dict()
 
             # Add plot via manager (always mark as array parent since each plot is its own array)
             added_index = self.plot_manager.add_plot(
-                points=transformed_points,
-                color_data=color_data,
-                colormap=colormap,
-                point_size=point_size,
-                draw_lines=draw_lines,
-                line_color=line_color,
-                line_width=line_width,
+                points=processed.points,
+                color_data=processed.color_data,
+                colormap=processed.colormap,
+                point_size=processed.point_size,
+                draw_lines=processed.draw_lines,
+                line_color=processed.line_color,
+                line_width=processed.line_width,
                 offset_x=x_offset,
                 offset_y=y_offset,
                 visible=visible,
-                transform_params=result_transform_params,
+                transform_params=processed.transform_params,
                 plot_name=generated_name,
                 is_array_parent=True,
                 global_color_min=global_color_min,
@@ -571,22 +528,18 @@ class Plot2D(QMainWindow):
                     "center": center,
                     "x_offset": x_offset,
                     "y_offset": y_offset,
-                    "colormap": colormap,
-                    "point_size": point_size,
-                    "draw_lines": draw_lines,
+                    "colormap": processed.colormap,
+                    "point_size": processed.point_size,
+                    "draw_lines": processed.draw_lines,
                     "line_color": line_color,
                     "line_width": line_width,
                     "color_field": color_field,
-                    "transform_params": result_transform_params,
+                    "transform_params": processed.transform_params,
                 },
             )
 
             # Register the array-to-group mapping
             self.array_field_integration.register_array_group(array_index, group_id)
-
-            print(
-                f"[INFO] Plot {added_index} configured: {generated_name} ({len(transformed_points):,} points)"
-            )
 
             # If this is the first plot and no custom bounds, fit view
             if len(self.plot_manager.plots) == 1 and not self._custom_bounds_provided:
@@ -617,7 +570,7 @@ class Plot2D(QMainWindow):
             if self.array_field_integration.scale_row:
                 self.array_field_integration.scale_row.set_current_array(array_index)
 
-            return result_transform_params
+            return processed.transform_params
 
         except Exception as e:
             print(f"[ERROR] Failed to add plot: {e}")
@@ -779,12 +732,6 @@ class Plot2D(QMainWindow):
         self.canvas.draw_idle()
 
         axis_name = "X" if axis_type == AxisType.X else "Y"
-        if frequency is not None:
-            print(
-                f"[INFO] Secondary {axis_name}-axis configured for time: {label} (sampling rate: {frequency} Hz)"
-            )
-        else:
-            print(f"[INFO] Secondary {axis_name}-axis configured: {label} ({unit})")
 
     def register_file_loader(
         self,

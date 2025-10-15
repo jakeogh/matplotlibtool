@@ -2,11 +2,12 @@
 # tab-width:4
 
 """
-Plot Group Context Manager
+Plot Group Context Manager - REFACTORED
 
 Manages a group of plots with shared global color mapping.
 Accumulates plots during the context, then applies global color range on exit.
-Registers the group with PlotManager for group-level operations.
+
+REFACTORED: Now uses PlotDataProcessor to eliminate code duplication with Plot2D.add_plot()
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ import numpy as np
 
 if TYPE_CHECKING:
     from .Plot2D import Plot2D
+    from .PlotDataProcessor import ProcessedPlotData
 
 
 class PlotGroupContext:
@@ -25,10 +27,9 @@ class PlotGroupContext:
 
     Usage:
         with viewer.plot_group(color_field='frame', group_name='My Data') as group:
-            group.add_plot(data1, x_field='x', y_field='y', color_field='frame')
-            group.add_plot(data2, x_field='x', y_field='y', color_field='frame')
+            group.add_plot(data1, x_field='x', y_field='y')
+            group.add_plot(data2, x_field='x', y_field='y')
         # On exit, all plots are rendered with consistent color mapping
-        # and registered as a group for group-level operations
     """
 
     def __init__(
@@ -49,8 +50,8 @@ class PlotGroupContext:
         self.color_field = color_field
         self.group_name = group_name
 
-        # Track accumulated plot data
-        self.accumulated_plots: list[dict] = []
+        # Track accumulated processed plot data
+        self.accumulated_plots: list[ProcessedPlotData] = []
 
         # Track global color range
         self.global_color_min: float | None = None
@@ -103,8 +104,8 @@ class PlotGroupContext:
 
         # Now add all plots with global color range
         with self.viewer.busy_manager.busy_operation("Adding plot group"):
-            for plot_data in self.accumulated_plots:
-                plot_index = self._add_plot_with_global_range(plot_data)
+            for processed in self.accumulated_plots:
+                plot_index = self._add_plot_with_global_range(processed)
                 self.group_plot_indices.append(plot_index)
 
         # Register the group with PlotManager
@@ -114,6 +115,9 @@ class PlotGroupContext:
             color_field=self.color_field,
             color_range=(self.global_color_min, self.global_color_max),
         )
+
+        # IMPORTANT: Select the newly created group so it becomes the default in the dropdown
+        self.viewer.plot_manager.select_group(group_id)
 
         # Final render
         self.viewer._update_plot()
@@ -137,9 +141,9 @@ class PlotGroupContext:
         center: bool = False,
         x_offset: float = 0.0,
         y_offset: float = 0.0,
-        colormap: str = "turbo",
+        colormap: str | None = None,
         point_size: float = 2.0,
-        draw_lines: bool = False,
+        draw_lines: bool | None = None,
         line_color: str | None = None,
         line_width: float = 1.0,
         visible: bool = True,
@@ -150,6 +154,8 @@ class PlotGroupContext:
         """
         Add a plot to the group (deferred rendering).
 
+        Uses PlotDataProcessor for shared validation and transformation logic.
+
         Args:
             data: Structured array
             x_field: Name of field to use for X axis
@@ -158,9 +164,9 @@ class PlotGroupContext:
             center: If True, center points at origin
             x_offset: X offset for the plot
             y_offset: Y offset for the plot
-            colormap: Colormap for the plot
+            colormap: Colormap for the plot (None = use viewer default)
             point_size: Point size for the plot
-            draw_lines: Whether to draw lines between points
+            draw_lines: Whether to draw lines (None = use viewer default)
             line_color: Color for lines (None = use point colors)
             line_width: Width of lines
             visible: Whether plot is initially visible
@@ -172,11 +178,25 @@ class PlotGroupContext:
         if color_field is None:
             color_field = self.color_field
 
-        # Validate that color_field exists in data
-        if color_field not in data.dtype.names:
-            raise ValueError(
-                f"Color field '{color_field}' not found in data. Available: {data.dtype.names}"
-            )
+        # Process using shared processor (handles defaults, validation, transformation)
+        processed = self.viewer.plot_processor.process_structured_array(
+            data,
+            x_field=x_field,
+            y_field=y_field,
+            color_field=color_field,
+            normalize=normalize,
+            center=center,
+            x_offset=x_offset,
+            y_offset=y_offset,
+            colormap=colormap,
+            point_size=point_size,
+            draw_lines=draw_lines,
+            line_color=line_color,
+            line_width=line_width,
+            visible=visible,
+            transform_params=transform_params,
+            plot_name=plot_name,
+        )
 
         # Validate fields match within group
         current_fields = set(data.dtype.names)
@@ -188,7 +208,7 @@ class PlotGroupContext:
             if current_fields != self._group_fields:
                 missing = self._group_fields - current_fields
                 extra = current_fields - self._group_fields
-                error_msg = f"All plots in a group must have the same fields.\n"
+                error_msg = "All plots in a group must have the same fields.\n"
                 if missing:
                     error_msg += f"  Missing fields: {missing}\n"
                 if extra:
@@ -211,115 +231,62 @@ class PlotGroupContext:
                 self.global_color_min = min(self.global_color_min, local_min)
                 self.global_color_max = max(self.global_color_max, local_max)
 
-        # Store plot data for later rendering
-        plot_data = {
-            "data": data,
-            "x_field": x_field,
-            "y_field": y_field,
-            "color_field": color_field,
-            "normalize": normalize,
-            "center": center,
-            "x_offset": x_offset,
-            "y_offset": y_offset,
-            "colormap": colormap,
-            "point_size": point_size,
-            "draw_lines": draw_lines,
-            "line_color": line_color,
-            "line_width": line_width,
-            "visible": visible,
-            "transform_params": transform_params,
-            "plot_name": plot_name,
-        }
+        # Store processed plot data for later rendering
+        self.accumulated_plots.append(processed)
 
-        self.accumulated_plots.append(plot_data)
-
-    def _add_plot_with_global_range(self, plot_data: dict) -> int:
+    def _add_plot_with_global_range(self, processed: ProcessedPlotData) -> int:
         """
         Add a plot using the global color range.
 
         Args:
-            plot_data: Dictionary containing plot parameters
+            processed: ProcessedPlotData from PlotDataProcessor
 
         Returns:
             The plot index that was added
         """
-        data = plot_data["data"]
-        x_field = plot_data["x_field"]
-        y_field = plot_data["y_field"]
-        color_field = plot_data["color_field"]
+        data = processed.original_data
+        x_field = processed.x_field
+        y_field = processed.y_field
+        color_field = processed.color_field
 
         # Register array with field manager
         array_index = self.viewer.array_field_integration.register_array(
             data=data,
             x_field=x_field,
             y_field=y_field,
-            array_name=plot_data["plot_name"],
-            normalize=plot_data["normalize"],
-            center=plot_data["center"],
-            x_offset=plot_data["x_offset"],
-            y_offset=plot_data["y_offset"],
-            colormap=plot_data["colormap"],
-            point_size=plot_data["point_size"],
-            draw_lines=plot_data["draw_lines"],
-            line_color=plot_data["line_color"],
-            line_width=plot_data["line_width"],
-            visible=plot_data["visible"],
-            transform_params=plot_data["transform_params"],
+            array_name=processed.plot_name,
+            normalize=False,  # Already transformed
+            center=False,  # Already transformed
+            x_offset=processed.x_offset,
+            y_offset=processed.y_offset,
+            colormap=processed.colormap,
+            point_size=processed.point_size,
+            draw_lines=processed.draw_lines,
+            line_color=processed.line_color,
+            line_width=processed.line_width,
+            visible=processed.visible,
+            transform_params=processed.transform_params,
             color_field=color_field,
             global_color_min=self.global_color_min,
             global_color_max=self.global_color_max,
         )
 
-        # Extract X and Y data
-        x_data = data[x_field].astype(np.float32)
-        y_data = data[y_field].astype(np.float32)
-        points_xy = np.column_stack((x_data, y_data))
-
-        # Extract color data
-        color_data = data[color_field].astype(np.float32)
-
-        # Apply coordinate transformation
-        transform_params = plot_data["transform_params"]
-        if transform_params is not None:
-            from .CoordinateTransformEngine import TransformParams
-
-            transform_params_obj = TransformParams.from_dict(transform_params)
-            transformed_points = self.viewer.transform_engine.apply_transform(
-                points_xy, transform_params_obj
-            )
-            result_transform_params = transform_params
-        elif plot_data["normalize"]:
-            transformed_points, params = self.viewer.transform_engine.normalize_points(
-                points_xy
-            )
-            result_transform_params = params.to_dict()
-        elif plot_data["center"]:
-            transformed_points, params = self.viewer.transform_engine.center_points(
-                points_xy
-            )
-            result_transform_params = params.to_dict()
-        else:
-            transformed_points, params = self.viewer.transform_engine.raw_points(
-                points_xy
-            )
-            result_transform_params = params.to_dict()
-
         # Generate plot name
-        plot_name = plot_data["plot_name"] or y_field
+        plot_name = processed.plot_name or y_field
 
         # Add plot to PlotManager with global color range
         plot_index = self.viewer.plot_manager.add_plot(
-            points=transformed_points,
-            color_data=color_data,
-            colormap=plot_data["colormap"],
-            point_size=plot_data["point_size"],
-            draw_lines=plot_data["draw_lines"],
-            line_color=plot_data["line_color"],
-            line_width=plot_data["line_width"],
-            offset_x=plot_data["x_offset"],
-            offset_y=plot_data["y_offset"],
-            visible=plot_data["visible"],
-            transform_params=result_transform_params,
+            points=processed.points,
+            color_data=processed.color_data,
+            colormap=processed.colormap,
+            point_size=processed.point_size,
+            draw_lines=processed.draw_lines,
+            line_color=processed.line_color,
+            line_width=processed.line_width,
+            offset_x=processed.x_offset,
+            offset_y=processed.y_offset,
+            visible=processed.visible,
+            transform_params=processed.transform_params,
             plot_name=plot_name,
             is_array_parent=True,
             global_color_min=self.global_color_min,
