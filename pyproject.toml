@@ -1,33 +1,19 @@
 [build-system]
-requires = [
-    "setuptools>=61.0",
-]
-build-backend = "setuptools.build_meta"
+requires = ["setuptools>=61.0", "tomlkit"]
+build-backend = "pep508_url_version_backend"
+backend-path = ["."]
 
 [project]
 name = "matplotlibtool"
-version = "0.0.1760905623"
+version = "0.0.1761035914"
 description = "2D and 3D matplotlib plotting lib for structured arrays"
 authors = [
     { name = "Justin Keogh", email = "github.com@v6y.net" },
 ]
-dependencies = [
-    "asserttool @ git+https://github.com/jakeogh/asserttool",
-    "click-auto-help @ git+https://github.com/jakeogh/click-auto-help",
-    "clicktool @ git+https://github.com/jakeogh/clicktool",
-    "configtool @ git+https://github.com/jakeogh/configtool",
-    "globalverbose @ git+https://github.com/jakeogh/globalverbose",
-    "iio-gpio-record-decoder @ git+https://github.com/jakeogh/iio-gpio-record-decoder",
-    "iioparser @ git+https://github.com/jakeogh/iioparser",
-    "matplotlib",
-    "numpy",
-    "pint",
-    "unmp @ git+https://github.com/jakeogh/unmp",
-]
+# filled in automatically
+dependencies = []
+license = "ISC"
 requires-python = ">=3.11"
-
-[project.license]
-text = "ISC"
 
 [project.urls]
 Homepage = "https://github.com/jakeogh/matplotlibtool"
@@ -48,3 +34,8 @@ exclude = [
 matplotlibtool = [
     "py.typed",
 ]
+
+[tool.pep508-url-version-backend]
+dependencies-indexed = ["asserttool>=0.0.1761027719", "click-auto-help>=0.0.1760909851", "clicktool>=0.0.1761028751", "configtool>=0.0.1760910230", "globalverbose>=0.0.1760909940", "unmp>=0.0.1760909622"]
+dependencies-git = ["asserttool @ git+https://github.com/jakeogh/asserttool", "click-auto-help @ git+https://github.com/jakeogh/click-auto-help", "clicktool @ git+https://github.com/jakeogh/clicktool", "configtool @ git+https://github.com/jakeogh/configtool", "globalverbose @ git+https://github.com/jakeogh/globalverbose", "unmp @ git+https://github.com/jakeogh/unmp"]
+index-urls = ["jakeogh.github.io", "pip-index"]
