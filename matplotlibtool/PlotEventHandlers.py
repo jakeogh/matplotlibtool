@@ -6,8 +6,6 @@ from __future__ import annotations
 import time
 
 import numpy as np
-from PyQt6.QtCore import QTimer
-from PyQt6.QtWidgets import QApplication
 
 
 class PlotEventHandlers:
@@ -75,7 +73,7 @@ class PlotEventHandlers:
 
             added = 0
             for arr in all_plots:
-                self.viewer.add_plot(arr)
+                self.viewer.add_plot(arr, x_field="sample", y_field="in0")
                 added += 1
 
             if added:
