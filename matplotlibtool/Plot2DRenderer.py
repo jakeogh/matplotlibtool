@@ -14,7 +14,6 @@ from collections.abc import Sequence
 import numpy as np
 from matplotlib.axes import Axes
 from matplotlib.collections import LineCollection
-from matplotlib.lines import Line2D
 
 
 class Matplotlib2DRenderer:
