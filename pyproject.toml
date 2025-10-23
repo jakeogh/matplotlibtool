@@ -5,7 +5,7 @@ backend-path = ["."]
 
 [project]
 name = "matplotlibtool"
-version = "1!0.0.1761255982"
+version = "1!0.0.1761256258"
 description = "2D and 3D matplotlib plotting lib for structured arrays"
 authors = [
     { name = "Justin Keogh", email = "github.com@v6y.net" },
@@ -36,7 +36,7 @@ matplotlibtool = [
 ]
 
 [tool.pep508-url-version-backend]
-dependencies-indexed = ["asserttool>=1!0.0.1761250315", "click-auto-help>=0.0.1761041641", "clicktool>=0.0.1761033403", "configtool>=1!0.0.1761255841", "globalverbose>=0.0.1761031290", "unmp>=0.0.1761031424"]
+dependencies-indexed = ["asserttool>=1!0.0.1761250315", "click-auto-help>=0.0.1761041641", "clicktool>=0.0.1761033403", "configtool>=1!0.0.1761256247", "globalverbose>=0.0.1761031290", "unmp>=0.0.1761031424"]
 dependencies-git = [
 	"asserttool @ git+https://github.com/jakeogh/asserttool", 
 	"click-auto-help @ git+https://github.com/jakeogh/click-auto-help", 
