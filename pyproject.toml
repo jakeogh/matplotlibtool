@@ -5,7 +5,7 @@ backend-path = ["."]
 
 [project]
 name = "matplotlibtool"
-version = "1!0.0.1762151833"
+version = "1!0.0.1762151862"
 description = "2D and 3D matplotlib plotting lib for structured arrays"
 authors = [
     { name = "Justin Keogh", email = "github.com@v6y.net" },
@@ -36,12 +36,13 @@ matplotlibtool = [
 ]
 
 [tool.pep508-url-version-backend]
-dependencies-indexed = ["asserttool>=1!0.0.1761250315", "click-auto-help>=0.0.1761041641", "clicktool>=1!0.0.1761810015", "configtool>=1!0.0.1762049827", "globalverbose>=0.0.1761031290", "unmp>=1!0.0.1762049804"]
+dependencies-indexed = ["pint", "asserttool>=1!0.0.1761250315", "click-auto-help>=0.0.1761041641", "clicktool>=1!0.0.1761810015", "configtool>=1!0.0.1762049827", "globalverbose>=0.0.1761031290", "unmp>=1!0.0.1762049804"]
 dependencies-git = [
-	"asserttool @ git+https://github.com/jakeogh/asserttool", 
-	"click-auto-help @ git+https://github.com/jakeogh/click-auto-help", 
-	"clicktool @ git+https://github.com/jakeogh/clicktool", 
-	"configtool @ git+https://github.com/jakeogh/configtool", 
-	"globalverbose @ git+https://github.com/jakeogh/globalverbose", 
+	"pint",
+	"asserttool @ git+https://github.com/jakeogh/asserttool",
+	"click-auto-help @ git+https://github.com/jakeogh/click-auto-help",
+	"clicktool @ git+https://github.com/jakeogh/clicktool",
+	"configtool @ git+https://github.com/jakeogh/configtool",
+	"globalverbose @ git+https://github.com/jakeogh/globalverbose",
 	"unmp @ git+https://github.com/jakeogh/unmp"]
 index-urls = ["jakeogh.github.io", "pip-index"]
