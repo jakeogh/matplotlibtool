@@ -73,7 +73,11 @@ class PlotEventHandlers:
 
             added = 0
             for arr in all_plots:
-                self.viewer.add_plot(arr, x_field="sample", y_field="in0")
+                self.viewer.add_plot(
+                    arr,
+                    x_field="sample",
+                    y_field="in0",
+                )
                 added += 1
 
             if added:

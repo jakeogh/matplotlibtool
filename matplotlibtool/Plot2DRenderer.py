@@ -106,7 +106,11 @@ class Matplotlib2DRenderer:
 
         # Process each plot
         for plot in plots:
-            visible = getattr(plot, "visible", True)
+            visible = getattr(
+                plot,
+                "visible",
+                True,
+            )
 
             if not visible or len(plot.points) == 0:
                 if plot.scatter_artist is not None:
