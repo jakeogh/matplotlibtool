@@ -85,23 +85,32 @@ class PlotEventHandlers:
             else:
                 print("[INFO] No plots were successfully added")
 
-    def on_plot_selection_changed(self, plot_index: int) -> None:
-        """Retarget controls to the newly selected plot."""
-        self.viewer.plot_manager.select_plot(plot_index)
-
     def on_acceleration_changed(self, value: float) -> None:
         """Handle acceleration change."""
         self.viewer.acceleration = float(value)
         self.viewer.keyboard_manager.set_acceleration(self.viewer.acceleration)
 
+    def on_plot_selection_changed(self, plot_index: int) -> None:
+        """Retarget controls to the newly selected plot."""
+        self.viewer.plot_manager.select_plot(plot_index)
+        self.viewer.control_bar_integration.sync_controls_to_selection()
+
     def on_point_size_changed(self, value: float) -> None:
-        """Handle point size change for selected plot."""
-        plot_index = self.viewer.plot_manager.selected_plot_index
-        self.viewer.plot_manager.set_plot_property(
-            plot_index,
-            "size",
-            value,
-        )
+        """Handle point size change for selected plot(s) or group."""
+        if self.viewer.plot_manager.is_group_selected():
+            group_id = self.viewer.plot_manager.selected_group_id
+            self.viewer.plot_manager.set_group_property(
+                group_id,
+                "size",
+                value,
+            )
+        else:
+            plot_index = self.viewer.plot_manager.selected_plot_index
+            self.viewer.plot_manager.set_plot_property(
+                plot_index,
+                "size",
+                value,
+            )
 
     def on_line_width_changed(self, value: float) -> None:
         """Handle line width change for selected plot(s) or group."""
@@ -120,14 +129,14 @@ class PlotEventHandlers:
                 value,
             )
 
-    def on_lines_toggled(self, checked: bool) -> None:
-        """Handle lines toggle for selected plot."""
-        plot_index = self.viewer.plot_manager.selected_plot_index
-        self.viewer.plot_manager.set_plot_property(
-            plot_index,
-            "draw_lines",
-            checked,
-        )
+    # def on_lines_toggled(self, checked: bool) -> None:
+    #    """Handle lines toggle for selected plot."""
+    #    plot_index = self.viewer.plot_manager.selected_plot_index
+    #    self.viewer.plot_manager.set_plot_property(
+    #        plot_index,
+    #        "draw_lines",
+    #        checked,
+    #    )
 
     def on_save_figure(self):
         """Auto-save figure to /delme with timestamp."""
@@ -151,22 +160,22 @@ class PlotEventHandlers:
 
                 traceback.print_exc()
 
-    def on_palette_changed(self, palette_name: str):
-        """Handle palette change for the selected plot."""
-        if palette_name.startswith("───"):
-            return
+    # def on_palette_changed(self, palette_name: str):
+    #    """Handle palette change for the selected plot."""
+    #    if palette_name.startswith("───"):
+    #        return
 
-        plot_index = self.viewer.plot_manager.selected_plot_index
-        self.viewer.plot_manager.set_plot_property(
-            plot_index,
-            "colormap",
-            palette_name,
-        )
+    #    plot_index = self.viewer.plot_manager.selected_plot_index
+    #    self.viewer.plot_manager.set_plot_property(
+    #        plot_index,
+    #        "colormap",
+    #        palette_name,
+    #    )
 
-    def on_visibility_toggled(self, visible: bool):
-        """Handle visibility toggle for the selected plot."""
-        plot_index = self.viewer.plot_manager.selected_plot_index
-        self.viewer.plot_manager.set_plot_visibility(plot_index, visible)
+    # def on_visibility_toggled(self, visible: bool):
+    #    """Handle visibility toggle for the selected plot."""
+    #    plot_index = self.viewer.plot_manager.selected_plot_index
+    #    self.viewer.plot_manager.set_plot_visibility(plot_index, visible)
 
     def on_grid_changed(self, grid_text: str):
         """Handle grid spacing changes."""
@@ -272,28 +281,28 @@ class PlotEventHandlers:
                 f"[INFO] Applied custom view bounds: X({applied_bounds.xlim[0]:.3f}, {applied_bounds.xlim[1]:.3f}), Y({applied_bounds.ylim[0]:.3f}, {applied_bounds.ylim[1]:.3f})"
             )
 
-    def apply_offset_values(self):
-        """Apply offset values from spinboxes to the selected plot."""
-        with self.viewer.busy_manager.busy_operation("Applying plot offset"):
-            x_offset, y_offset = self.viewer.control_bar_manager.get_offset_values()
+    # def apply_offset_values(self):
+    #    """Apply offset values from spinboxes to the selected plot."""
+    #    with self.viewer.busy_manager.busy_operation("Applying plot offset"):
+    #        x_offset, y_offset = self.viewer.control_bar_manager.get_offset_values()
 
-            plot_index = self.viewer.plot_manager.selected_plot_index
-            self.viewer.plot_manager.set_plot_property(
-                plot_index,
-                "offset_x",
-                x_offset,
-            )
-            self.viewer.plot_manager.set_plot_property(
-                plot_index,
-                "offset_y",
-                y_offset,
-            )
+    #        plot_index = self.viewer.plot_manager.selected_plot_index
+    #        self.viewer.plot_manager.set_plot_property(
+    #            plot_index,
+    #            "offset_x",
+    #            x_offset,
+    #        )
+    #        self.viewer.plot_manager.set_plot_property(
+    #            plot_index,
+    #            "offset_y",
+    #            y_offset,
+    #        )
 
-            plot_info = self.viewer.plot_manager.get_plot_info(plot_index)
-            if plot_info:
-                print(
-                    f"[INFO] Applied offset to plot {plot_index + 1}: ({x_offset:.3f}, {y_offset:.3f})"
-                )
+    #        plot_info = self.viewer.plot_manager.get_plot_info(plot_index)
+    #        if plot_info:
+    #            print(
+    #                f"[INFO] Applied offset to plot {plot_index + 1}: ({x_offset:.3f}, {y_offset:.3f})"
+    #            )
 
     def reset_view(self) -> None:
         """Reset axes limits to data bounds and reset scaling."""
@@ -314,9 +323,7 @@ class PlotEventHandlers:
 
                 pad_ratio = 0.1
 
-                new_bounds = self.viewer.view_manager.reset_to_data_bounds(
-                    all_points, pad_ratio
-                )
+                new_bounds = self.viewer.view_manager.fit_to_data(all_points, pad_ratio)
 
             self.viewer.state.scale[:] = 1.0
             self.viewer.state.velocity[:] = 0.0
@@ -338,28 +345,6 @@ class PlotEventHandlers:
         """Handle when a plot group is selected."""
         self.viewer.plot_manager.select_group(group_id)
         self.viewer.control_bar_integration.sync_controls_to_selection()
-
-    def on_plot_selection_changed(self, plot_index: int) -> None:
-        """Retarget controls to the newly selected plot."""
-        self.viewer.plot_manager.select_plot(plot_index)
-        self.viewer.control_bar_integration.sync_controls_to_selection()
-
-    def on_point_size_changed(self, value: float) -> None:
-        """Handle point size change for selected plot(s) or group."""
-        if self.viewer.plot_manager.is_group_selected():
-            group_id = self.viewer.plot_manager.selected_group_id
-            self.viewer.plot_manager.set_group_property(
-                group_id,
-                "size",
-                value,
-            )
-        else:
-            plot_index = self.viewer.plot_manager.selected_plot_index
-            self.viewer.plot_manager.set_plot_property(
-                plot_index,
-                "size",
-                value,
-            )
 
     def on_lines_toggled(self, checked: bool) -> None:
         """Handle lines toggle for selected plot(s) or group."""
