@@ -10,10 +10,7 @@ unit scaling using the pint library for proper unit conversion.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
-from typing import Tuple
 
-import numpy as np
 from pint import UnitRegistry
 
 from .AxisType import AxisType
