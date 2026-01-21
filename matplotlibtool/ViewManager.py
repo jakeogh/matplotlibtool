@@ -29,9 +29,10 @@ class ViewBounds:
                 f"xlim[0] ({self.xlim[0]}) must be less than xlim[1] ({self.xlim[1]})"
             )
         if self.ylim[0] >= self.ylim[1]:
-            raise ValueError(
-                f"ylim[0] ({self.ylim[0]}) must be less than ylim[1] ({self.ylim[1]})"
-            )
+            self.ylim = (self.ylim[0], self.ylim[1] + 1)
+            #raise ValueError(
+            #    f"ylim[0] ({self.ylim[0]}) must be less than ylim[1] ({self.ylim[1]})"
+            #)
 
     @property
     def x_range(self) -> float:
