@@ -120,15 +120,12 @@ class FileLoaderRegistry:
         for ext, ext_paths in extension_groups.items():
             if ext in self.file_loaders:
                 loader_func = self.file_loaders[ext]
-                try:
-                    plots = loader_func(ext_paths)
-                    if plots:
-                        all_plots.extend(plots)
-                        print(
-                            f"[INFO] Loaded {len(plots)} plots from {len(ext_paths)} {ext} file(s)"
-                        )
-                except Exception as e:
-                    print(f"[ERROR] Failed loading {ext} files: {e}")
+                plots = loader_func(ext_paths)
+                if plots:
+                    all_plots.extend(plots)
+                    print(
+                        f"[INFO] Loaded {len(plots)} plots from {len(ext_paths)} {ext} file(s)"
+                    )
             else:
                 print(
                     f"[WARNING] No loader registered for {ext} files (skipping {len(ext_paths)} files)"

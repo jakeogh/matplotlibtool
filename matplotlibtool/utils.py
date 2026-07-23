@@ -113,7 +113,7 @@ def compute_bounds(
 
 def load_points_from_stdin_ndarray(
     minimum_dimensions: int,
-) -> np.ndarray | None:
+) -> np.ndarray:
     """
     Read points from stdin via messagepack.
 
@@ -145,7 +145,7 @@ def load_points_from_stdin_ndarray(
         if not found_data:
             try:
                 float(_v[0])
-            except Exception:
+            except (ValueError, TypeError):
                 continue
 
         # Process data based on expected dimensions
@@ -172,8 +172,7 @@ def load_points_from_stdin_ndarray(
             raise NotImplementedError(f"{minimum_dimensions=}")
 
     if not points:
-        empty_shape = (0, minimum_dimensions)
-        return np.empty(empty_shape, dtype=np.float32), None
+        return np.empty((0, minimum_dimensions), dtype=np.float32)
 
     pts = np.asarray(points, dtype=np.float32)
     return pts
@@ -211,7 +210,7 @@ def load_points_from_stdin(
         if not found_data:
             try:
                 float(_v[0])
-            except Exception:
+            except (ValueError, TypeError):
                 continue
 
         # Process data based on expected dimensions
@@ -244,13 +243,3 @@ def center_points_2d(points_xy: np.ndarray) -> np.ndarray:
     """Center 2D points at origin without scaling."""
     return center_points(points_xy, dimensions=2)
 
-
-def get_bounds_2d(
-    points_xy: np.ndarray, pad_ratio: float = 0.05
-) -> tuple[tuple[float, float], tuple[float, float]]:
-    """Calculate 2D bounds with padding for initial view."""
-    return compute_bounds(
-        points_xy,
-        pad_ratio,
-        return_format="tuple",
-    )

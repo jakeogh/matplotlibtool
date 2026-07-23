@@ -171,35 +171,33 @@ class AxisSecondaryIntegration:
         Args:
             config: AxisSecondaryConfig object with mapping parameters
         """
-        try:
-            with self.viewer.busy_manager.busy_operation("Configuring secondary axis"):
-                self.viewer.view_manager.configure_secondary_axis(config)
+        with self.viewer.busy_manager.busy_operation("Configuring secondary axis"):
+            self.viewer.view_manager.configure_secondary_axis(config)
 
-                # Auto-enable the checkbox when configuration is applied
-                self.viewer.control_bar_manager.set_secondary_axis_enabled(True)
+            # Auto-enable the checkbox when configuration is applied
+            self.viewer.control_bar_manager.set_secondary_axis_enabled(True)
 
-                # Populate the text fields with the applied configuration
-                self.viewer.control_bar_manager.set_secondary_axis_config(config)
+            # Populate the text fields with the applied configuration
+            self.viewer.control_bar_manager.set_secondary_axis_config(config)
 
-                # Force complete redraw with secondary axis
-                self.viewer._update_plot()
-                self.viewer.canvas.draw_idle()
+            # Force complete redraw with secondary axis
+            self.viewer._update_plot()
+            self.viewer.canvas.draw_idle()
 
+            print(
+                f"[INFO] Secondary Y-axis configured: {config.label} ({config.unit})"
+            )
+
+            if config.enable_auto_scale:
                 print(
-                    f"[INFO] Secondary Y-axis configured: {config.label} ({config.unit})"
+                    "[INFO] Automatic unit scaling enabled (will show mV, µV, etc. when zoomed)"
                 )
 
-                if config.enable_auto_scale:
-                    print(
-                        "[INFO] Automatic unit scaling enabled (will show mV, µV, etc. when zoomed)"
-                    )
+            print(
+                f"[INFO] Range mapping: Primary [{config.scale:.3e}x + {config.offset:.3f}] → Secondary"
+            )
 
-                print(
-                    f"[INFO] Range mapping: Primary [{config.scale:.3e}x + {config.offset:.3f}] → Secondary"
-                )
 
-        except Exception as e:
-            print(f"[ERROR] Failed to configure secondary axis: {e}")
 
     def sync_ui_state(self) -> None:
         """

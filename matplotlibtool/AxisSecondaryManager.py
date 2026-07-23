@@ -75,82 +75,65 @@ class AxisSecondaryManager:
         secondary_max = self.config.scale * primary_max + self.config.offset
 
         if self.config.enable_auto_scale:
-            try:
-                # Get display values with appropriate scaling
-                display_min, display_max, unit_str, conversion_factor = (
-                    self.config.get_display_values(secondary_min, secondary_max)
+            # Get display values with appropriate scaling
+            display_min, display_max, unit_str, conversion_factor = (
+                self.config.get_display_values(secondary_min, secondary_max)
+            )
+
+            # Store for tick formatter
+            self._display_min = display_min
+            self._display_max = display_max
+            self._current_unit_str = unit_str
+            self._conversion_factor = conversion_factor
+
+            # Set the scaled limits based on axis type
+            if self.axis_type == AxisType.Y:
+                self.secondary_ax.set_ylim(display_min, display_max)
+                self.secondary_ax.yaxis.set_major_locator(AutoLocator())
+            else:
+                self.secondary_ax.set_xlim(display_min, display_max)
+                # Use MaxNLocator with more ticks for X-axis
+                self.secondary_ax.xaxis.set_major_locator(
+                    MaxNLocator(nbins=10, prune=None)
                 )
 
-                # Store for tick formatter
-                self._display_min = display_min
-                self._display_max = display_max
-                self._current_unit_str = unit_str
-                self._conversion_factor = conversion_factor
+            # Create formatter
+            tick_range = display_max - display_min
 
-                # Set the scaled limits based on axis type
-                if self.axis_type == AxisType.Y:
-                    self.secondary_ax.set_ylim(display_min, display_max)
-                    self.secondary_ax.yaxis.set_major_locator(AutoLocator())
+            def format_tick(value, pos):
+                """Format tick with appropriate precision."""
+                if tick_range == 0:
+                    return f"{value:.3f}"
+
+                if tick_range > 0:
+                    order = np.floor(np.log10(tick_range))
                 else:
-                    self.secondary_ax.set_xlim(display_min, display_max)
-                    # Use MaxNLocator with more ticks for X-axis
-                    self.secondary_ax.xaxis.set_major_locator(
-                        MaxNLocator(nbins=10, prune=None)
-                    )
+                    order = 0
 
-                # Create formatter
-                tick_range = display_max - display_min
-
-                def format_tick(value, pos):
-                    """Format tick with appropriate precision."""
-                    if tick_range == 0:
-                        return f"{value:.3f}"
-
-                    if tick_range > 0:
-                        order = np.floor(np.log10(tick_range))
-                    else:
-                        order = 0
-
-                    if order < -2:
-                        precision = int(abs(order) + 2)
-                    elif order < 0:
-                        precision = 3
-                    elif order < 1:
-                        precision = 2
-                    elif order < 2:
-                        precision = 1
-                    else:
-                        precision = 0
-
-                    if precision > 0:
-                        return f"{value:.{precision}f}"
-                    else:
-                        return f"{value:.0f}"
-
-                formatter = FuncFormatter(format_tick)
-
-                if self.axis_type == AxisType.Y:
-                    self.secondary_ax.yaxis.set_major_formatter(formatter)
+                if order < -2:
+                    precision = int(abs(order) + 2)
+                elif order < 0:
+                    precision = 3
+                elif order < 1:
+                    precision = 2
+                elif order < 2:
+                    precision = 1
                 else:
-                    self.secondary_ax.xaxis.set_major_formatter(formatter)
+                    precision = 0
 
-                full_label = f"{self.config.label} ({unit_str})"
-
-            except Exception as e:
-                print(f"[ERROR] Auto-scaling failed: {e}")
-                import traceback
-
-                traceback.print_exc()
-
-                # Fall back to no scaling
-                if self.axis_type == AxisType.Y:
-                    self.secondary_ax.set_ylim(secondary_min, secondary_max)
+                if precision > 0:
+                    return f"{value:.{precision}f}"
                 else:
-                    self.secondary_ax.set_xlim(secondary_min, secondary_max)
+                    return f"{value:.0f}"
 
-                full_label = f"{self.config.label} ({self.config.unit})"
-                self._current_unit_str = self.config.unit
-                self._conversion_factor = 1.0
+            formatter = FuncFormatter(format_tick)
+
+            if self.axis_type == AxisType.Y:
+                self.secondary_ax.yaxis.set_major_formatter(formatter)
+            else:
+                self.secondary_ax.xaxis.set_major_formatter(formatter)
+
+            full_label = f"{self.config.label} ({unit_str})"
 
         else:
             # No auto-scaling

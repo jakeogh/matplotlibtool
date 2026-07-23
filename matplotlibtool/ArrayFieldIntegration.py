@@ -450,30 +450,16 @@ class ArrayFieldIntegration:
             print(f"[WARNING] Field '{field_name}' is not currently plotted")
             return
 
-        try:
-            with self.viewer.busy_manager.busy_operation(
-                f"Removing field {field_name}"
-            ):
-                # Set plot visibility to False instead of removing it
-                # This preserves the plot index mappings
-                self.viewer.plot_manager.set_plot_visibility(plot_index, False)
+        with self.viewer.busy_manager.busy_operation(
+            f"Removing field {field_name}"
+        ):
+            # visibility off instead of removal preserves plot index mappings
+            self.viewer.plot_manager.set_plot_visibility(plot_index, False)
+            self.array_field_manager.unregister_field_plot(array_index, field_name)
+            print(f"[INFO] Removed field plot: {field_name} (plot index {plot_index})")
 
-                # Unregister the field plot
-                self.array_field_manager.unregister_field_plot(array_index, field_name)
-
-                print(
-                    f"[INFO] Removed field plot: {field_name} (plot index {plot_index})"
-                )
-
-                # CRITICAL: Force plot update and redraw
-                self.viewer._update_plot()
-                self.viewer.canvas.draw_idle()
-
-        except Exception as e:
-            print(f"[ERROR] Failed to remove field plot '{field_name}': {e}")
-            import traceback
-
-            traceback.print_exc()
+            self.viewer._update_plot()
+            self.viewer.canvas.draw_idle()
 
     def on_array_selection_changed(self, plot_index: int) -> None:
         """

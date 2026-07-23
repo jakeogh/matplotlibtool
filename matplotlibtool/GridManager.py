@@ -3,24 +3,17 @@
 
 from __future__ import annotations
 
+import numpy as np
 from matplotlib.axes import Axes
 
 
 class GridManager:
     """
-    Manages grid line rendering for matplotlib plots.
-
-    Handles both normal axes grid and 2^N spaced horizontal grid lines
+    Grid rendering: standard axes grid plus 2^N-spaced horizontal lines
     for ADC data visualization.
     """
 
     def __init__(self, ax: Axes):
-        """
-        Initialize grid manager.
-
-        Args:
-            ax: Matplotlib axes object
-        """
         self.ax = ax
         self.grid_lines: list = []
         self.grid_enabled = False
@@ -28,123 +21,42 @@ class GridManager:
         self.grid_color = "#808080"
         self.axes_grid_color = "gray"
 
-    def set_grid_spacing(
-        self,
-        power: int,
-        enabled: bool = True,
-    ):
-        """
-        Set the grid spacing to 2^power.
-
-        Args:
-            power: Power of 2 for grid spacing (0 to disable)
-            enabled: Whether grid is enabled
-        """
+    def set_grid_spacing(self, power: int, enabled: bool = True) -> None:
         self.grid_spacing_power = power
         self.grid_enabled = enabled and power > 0
 
-    def set_grid_colors(
-        self,
-        grid_color: str,
-        axes_grid_color: str,
-    ):
-        """
-        Set grid colors.
-
-        Args:
-            grid_color: Color for 2^N horizontal grid lines
-            axes_grid_color: Color for normal axes grid
-        """
+    def set_grid_colors(self, grid_color: str, axes_grid_color: str) -> None:
         self.grid_color = grid_color
         self.axes_grid_color = axes_grid_color
 
-    def clear_grid_lines(self):
-        """Remove all custom grid lines."""
+    def clear_grid_lines(self) -> None:
         for line in self.grid_lines:
-            try:
-                if hasattr(line, "remove"):
-                    line.remove()
-                elif hasattr(self.ax, "lines") and line in self.ax.lines:
-                    self.ax.lines.remove(line)
-            except (ValueError, AttributeError, NotImplementedError):
-                try:
-                    if hasattr(self.ax, "collections") and line in self.ax.collections:
-                        self.ax.collections.remove(line)
-                    elif hasattr(self.ax, "patches") and line in self.ax.patches:
-                        self.ax.patches.remove(line)
-                except (ValueError, AttributeError):
-                    pass
+            line.remove()
         self.grid_lines.clear()
 
-    def draw_horizontal_grid(self, max_lines: int = 1000):
-        """
-        Draw horizontal grid lines at 2^N spacing.
-
-        Args:
-            max_lines: Maximum number of lines to draw (safety limit)
-        """
+    def draw_horizontal_grid(self, max_lines: int = 1000) -> None:
         if not self.grid_enabled or self.grid_spacing_power <= 0:
             return
 
         spacing = 2**self.grid_spacing_power
+        y_min, y_max = self.ax.get_ylim()
 
-        xlim = self.ax.get_xlim()
-        ylim = self.ax.get_ylim()
-        y_min, y_max = ylim
+        first = int(np.ceil(y_min / spacing))
+        last = int(np.floor(y_max / spacing))
+        positions = np.arange(first, last + 1, dtype=np.float64) * spacing
+        positions = positions[:max_lines]
 
-        line_positions = []
-
-        # Add y=0 if it's in range
-        if y_min <= 0 <= y_max:
-            line_positions.append(0.0)
-
-        # Positive lines
-        y = spacing
-        while y <= y_max and len(line_positions) < max_lines:
-            if y >= y_min:
-                line_positions.append(float(y))
-            y += spacing
-
-        # Negative lines
-        y = -spacing
-        while y >= y_min and len(line_positions) < max_lines:
-            if y <= y_max:
-                line_positions.append(float(y))
-            y -= spacing
-
-        print(
-            f"[GridManager] Drawing {len(line_positions)} lines with spacing 2^{self.grid_spacing_power}={spacing}"
-        )
-        print(f"[GridManager] Y range: {y_min:.1f} to {y_max:.1f}")
-        if line_positions:
-            sorted_positions = sorted(line_positions)
-            print(
-                f"[GridManager] Line positions: {sorted_positions[:3]} ... {sorted_positions[-3:]} (showing first/last 3)"
+        for y_pos in positions:
+            line = self.ax.axhline(
+                y=y_pos,
+                color=self.grid_color,
+                linewidth=1.0,
+                alpha=0.6,
+                zorder=0.5,
             )
+            self.grid_lines.append(line)
 
-        for y_pos in line_positions:
-            try:
-                line = self.ax.axhline(
-                    y=y_pos,
-                    color=self.grid_color,
-                    linewidth=1.0,
-                    alpha=0.6,
-                    zorder=0.5,
-                )
-                self.grid_lines.append(line)
-            except Exception as e:
-                print(f"[GridManager] Failed to draw line at y={y_pos}: {e}")
-                break
-
-        print(f"[GridManager] Successfully drew {len(self.grid_lines)} grid lines")
-
-    def setup_axes_grid(self, enabled: bool = True):
-        """
-        Setup standard matplotlib axes grid.
-
-        Args:
-            enabled: Whether to enable the axes grid
-        """
+    def setup_axes_grid(self, enabled: bool = True) -> None:
         if enabled:
             self.ax.grid(
                 True,
@@ -158,19 +70,10 @@ class GridManager:
     def update_grid(
         self,
         axes_grid_enabled: bool = True,
-        horizontal_grid_enabled: bool = None,
+        horizontal_grid_enabled: bool | None = None,
         max_lines: int = 1000,
-    ):
-        """
-        Update all grid elements.
-
-        Args:
-            axes_grid_enabled: Whether to show standard axes grid
-            horizontal_grid_enabled: Whether to show horizontal grid (None = use current setting)
-            max_lines: Maximum horizontal lines to draw
-        """
+    ) -> None:
         self.setup_axes_grid(axes_grid_enabled)
-
         self.clear_grid_lines()
 
         if horizontal_grid_enabled is not None:

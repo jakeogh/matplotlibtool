@@ -810,8 +810,6 @@ class ControlBarManager:
 
         except ValueError as e:
             print(f"[ERROR] Invalid secondary axis configuration: {e}")
-        except Exception as e:
-            print(f"[ERROR] Failed to apply secondary axis configuration: {e}")
 
     def set_dark_mode_checked(self, checked: bool):
         """Set dark mode checkbox state."""
