@@ -28,6 +28,8 @@ from PyQt6.QtCore import Qt  # type: ignore
 from PyQt6.QtCore import QTimer
 from PyQt6.QtGui import QColor  # type: ignore
 from PyQt6.QtGui import QKeyEvent
+from PyQt6.QtGui import QKeySequence
+from PyQt6.QtGui import QShortcut
 from PyQt6.QtWidgets import QApplication  # type: ignore
 from PyQt6.QtWidgets import QColorDialog
 from PyQt6.QtWidgets import QMainWindow
@@ -45,6 +47,7 @@ from .FileLoaderRegistry import FileLoaderRegistry
 from .GridManager import GridManager
 from .InputState import InputState
 from .KeyboardInputManager import KeyboardInputManager
+from .MouseMode import MouseMode
 from .Plot2DInteractions import Plot2DInteractions
 from .Plot2DRenderer import Matplotlib2DRenderer
 from .PlotDataProcessor import PlotDataProcessor
@@ -165,8 +168,8 @@ class Plot2D(QMainWindow):
             self.canvas,
         )
         print(
-            "[INFO] Point hover initialized - press 'H' to toggle "
-            "(right-click copies coordinates, two left-clicks measure dx/dy)"
+            "[INFO] Mouse modes: Zoom (left-drag box), Pan (left-drag pans), "
+            "Hover (snap/copy/measure) - 'H' toggles hover"
         )
 
         # Initial view bounds
@@ -242,6 +245,10 @@ class Plot2D(QMainWindow):
         self._update_plot()
         self.view_history.record(ViewBounds(xlim=xlim, ylim=ylim))
 
+        self._hover_shortcut = QShortcut(QKeySequence("H"), self)
+        self._hover_shortcut.activated.connect(self.toggle_hover_mode)
+        self._apply_mouse_mode_cursor(MouseMode.ZOOM)
+
         # Timer ~60FPS
         self.timer = QTimer()
         self.timer.timeout.connect(self.event_handlers.on_timer)
@@ -258,6 +265,37 @@ class Plot2D(QMainWindow):
             print(
                 f"[INFO] Image will be rendered to: {render_image} after setup completes"
             )
+
+    # ===== mouse modes =====
+
+    def set_mouse_mode(self, mode: MouseMode) -> None:
+        previous = self.interactions.mouse_mode
+        if mode == previous:
+            return
+
+        if previous == MouseMode.HOVER:
+            self.point_hover.disable()
+        self.interactions.mouse_mode = mode
+        if mode == MouseMode.HOVER:
+            self.point_hover.enable()
+
+        self._apply_mouse_mode_cursor(mode)
+        self.control_bar_manager.set_mouse_mode_indicator(mode.name)
+        print(f"[INFO] Mouse mode: {mode.name}")
+
+    def toggle_hover_mode(self) -> None:
+        if self.interactions.mouse_mode == MouseMode.HOVER:
+            self.set_mouse_mode(MouseMode.ZOOM)
+        else:
+            self.set_mouse_mode(MouseMode.HOVER)
+
+    def _apply_mouse_mode_cursor(self, mode: MouseMode) -> None:
+        cursor = {
+            MouseMode.ZOOM: Qt.CursorShape.CrossCursor,
+            MouseMode.PAN: Qt.CursorShape.OpenHandCursor,
+            MouseMode.HOVER: Qt.CursorShape.ArrowCursor,
+        }[mode]
+        self.canvas.setCursor(cursor)
 
     # ===== view API =====
 
@@ -759,10 +797,6 @@ class Plot2D(QMainWindow):
     def keyPressEvent(self, event: QKeyEvent):
         key_name = event.text().upper() if event.text() else None
         has_shift = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
-
-        if key_name == "H":
-            self.point_hover.toggle()
-            return
 
         if key_name and key_name in ("X", "Y", "Z"):
             self.keyboard_manager.add_key_with_repeat_check(key_name, has_shift)

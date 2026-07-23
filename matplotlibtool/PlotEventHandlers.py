@@ -9,6 +9,8 @@ from pathlib import Path
 
 import numpy as np
 
+from .MouseMode import MouseMode
+
 
 class PlotEventHandlers:
     """Event and user-interaction handlers for the 2D matplotlib viewer."""
@@ -173,6 +175,9 @@ class PlotEventHandlers:
             print(
                 f"[INFO] Fit view to data bounds: X({bounds.xlim[0]:.3f}, {bounds.xlim[1]:.3f}), Y({bounds.ylim[0]:.3f}, {bounds.ylim[1]:.3f})"
             )
+
+    def on_mouse_mode_changed(self, mode_name: str) -> None:
+        self.viewer.set_mouse_mode(MouseMode[mode_name])
 
     def view_back(self) -> None:
         self.viewer.view_back()

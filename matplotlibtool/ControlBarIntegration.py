@@ -65,6 +65,7 @@ class ControlBarIntegration:
             "resetRequested": self.viewer.event_handlers.reset_view,
             "exitRequested": self.viewer.event_handlers.immediate_exit,
             "fitViewRequested": self.viewer.event_handlers.fit_view_to_data,
+            "mouseModeChanged": self.viewer.event_handlers.on_mouse_mode_changed,
             "viewBackRequested": self.viewer.event_handlers.view_back,
             "viewForwardRequested": self.viewer.event_handlers.view_forward,
             "applyViewRequested": self.viewer.event_handlers.apply_view_bounds,

@@ -51,6 +51,7 @@ class ControlBarSignals(QObject):
 
     # View controls
     fitViewRequested = pyqtSignal()
+    mouseModeChanged = pyqtSignal(str)
     viewBackRequested = pyqtSignal()
     viewForwardRequested = pyqtSignal()
     applyViewRequested = pyqtSignal()
@@ -501,6 +502,26 @@ class ControlBarManager:
         save_fig_btn.clicked.connect(self.signals.saveFigureRequested.emit)
         layout.addWidget(save_fig_btn)
         self.widgets["save_fig_btn"] = save_fig_btn
+
+        layout.addWidget(QLabel("Mode"))
+        for mode_name, label, tip in (
+            ("ZOOM", "Zoom", "Left-drag draws a zoom box"),
+            ("PAN", "Pan", "Left-drag pans the view"),
+            ("HOVER", "Hover", "Snap to points: right-click copies, two left-clicks measure"),
+        ):
+            mode_btn = QPushButton(label)
+            mode_btn.setCheckable(True)
+            mode_btn.setMaximumWidth(55)
+            mode_btn.setToolTip(tip)
+            mode_btn.setStyleSheet(
+                "QPushButton:checked { background-color: #2d6a4f; color: white; }"
+            )
+            mode_btn.clicked.connect(
+                lambda checked, name=mode_name: self.signals.mouseModeChanged.emit(name)
+            )
+            layout.addWidget(mode_btn)
+            self.widgets[f"mode_{mode_name.lower()}_btn"] = mode_btn
+        self.widgets["mode_zoom_btn"].setChecked(True)
 
         back_btn = QPushButton("◀")
         back_btn.setMaximumWidth(30)
@@ -1099,6 +1120,14 @@ class ControlBarManager:
         if widget and hasattr(widget, "text"):
             return widget.text().strip()
         return ""
+
+    def set_mouse_mode_indicator(self, mode_name: str) -> None:
+        """Check exactly the button for the active mode."""
+        for name in ("zoom", "pan", "hover"):
+            btn = self.widgets[f"mode_{name}_btn"]
+            btn.blockSignals(True)
+            btn.setChecked(name.upper() == mode_name)
+            btn.blockSignals(False)
 
     def get_widget(self, name: str) -> QWidget | None:
         """Get widget by name."""

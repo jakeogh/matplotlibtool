@@ -5,7 +5,7 @@
 PointHover: hover point identification, coordinate copy, and two-point
 measurement.
 
-Press 'H' to toggle. While enabled:
+Active in the HOVER mouse mode ('H' or the mode buttons toggle it):
 - hovering snaps to the nearest point and shows its coordinates
 - right-click copies the snapped point's coordinates to the clipboard
 - left-click on a point anchors a measurement; a second left-click on
@@ -62,7 +62,6 @@ class PointHoverManager:
 
     def enable(self):
         self.enabled = True
-        self.viewer.interactions.zoom_box_enabled = False
         if self._click_connection is None:
             self._click_connection = self.canvas.mpl_connect(
                 "button_press_event", self._on_click
@@ -80,13 +79,6 @@ class PointHoverManager:
         if self._click_connection is not None:
             self.canvas.mpl_disconnect(self._click_connection)
             self._click_connection = None
-        self.viewer.interactions.zoom_box_enabled = True
-
-    def toggle(self):
-        if self.enabled:
-            self.disable()
-        else:
-            self.enable()
 
     # ---------- display state ----------
 
