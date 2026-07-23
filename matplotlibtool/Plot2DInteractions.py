@@ -238,6 +238,8 @@ class Plot2DInteractions:
         if event.key == "escape" and self.drawing_zoom_box:
             self.cancel_zoom_box()
             return
+        if event.key == "escape" and self.viewer.point_hover.clear_measurement_if_active():
+            return
 
         if event.key in ("h", "H"):
             self.viewer.point_hover.toggle()

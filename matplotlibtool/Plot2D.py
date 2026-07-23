@@ -164,7 +164,10 @@ class Plot2D(QMainWindow):
             self.ax,
             self.canvas,
         )
-        print("[INFO] Point hover initialized - press 'H' to toggle")
+        print(
+            "[INFO] Point hover initialized - press 'H' to toggle "
+            "(right-click copies coordinates, two left-clicks measure dx/dy)"
+        )
 
         # Initial view bounds
         if (
