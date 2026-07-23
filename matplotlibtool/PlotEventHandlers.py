@@ -59,6 +59,7 @@ class PlotEventHandlers:
     def on_settle_toggled(self, enabled: bool) -> None:
         """Toggle log10|y - ref| display; ref from the in-view tail per plot."""
         self.viewer.view_manager.secondary_axis_manager.set_residual_mode(enabled)
+        self._set_settle_axis_label(enabled)
         if enabled:
             xlim = self.viewer.view_manager.get_current_bounds().xlim
             for i, plot in enumerate(self.viewer.plot_manager.plots):
@@ -91,6 +92,11 @@ class PlotEventHandlers:
 
         self._update_ref_annotation()
         self._refit_y_keep_x()
+
+    def _set_settle_axis_label(self, enabled: bool) -> None:
+        color = "white" if self.viewer.dark_mode else "black"
+        label = "log10 |y \u2212 ref|  (decades of ADC codes)" if enabled else ""
+        self.viewer.ax.set_ylabel(label, color=color)
 
     def _update_ref_annotation(self) -> None:
         """Annotate each visible plot's settle reference (codes and physical)."""
@@ -195,6 +201,7 @@ class PlotEventHandlers:
         plot.settle_ref = seg.y_final
         self.viewer.control_bar_manager.set_settle_checked(True)
         self.viewer.view_manager.secondary_axis_manager.set_residual_mode(True)
+        self._set_settle_axis_label(True)
         self._update_ref_annotation()
 
         span = seg.span_x1 - seg.baseline_x0
