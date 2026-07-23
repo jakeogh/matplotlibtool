@@ -3,7 +3,7 @@ from __future__ import annotations
 # pylint: disable=no-name-in-module
 from matplotlib.axes import Axes
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
-from matplotlib.widgets import RectangleSelector
+from matplotlib.patches import Rectangle
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QKeyEvent
 from PyQt6.QtWidgets import QApplication
@@ -35,35 +35,111 @@ class Plot2DInteractions:
         self._pan_start_xlim: tuple[float, float] | None = None
         self._pan_start_ylim: tuple[float, float] | None = None
 
+        self.zoom_box_enabled = True
+        self.drawing_zoom_box = False
+        self.min_span_pixels = 5.0
+        self._box_start_pixel: tuple[float, float] | None = None
+        self._box_background = None
+        self._box_rect = Rectangle(
+            (0.0, 0.0),
+            0.0,
+            0.0,
+            linewidth=1.0,
+            linestyle="--",
+            edgecolor="#cccccc",
+            facecolor="#ffffff",
+            alpha=0.25,
+            animated=True,
+            visible=False,
+        )
+        ax.add_patch(self._box_rect)
+
     # ---------- zoom box ----------
+    #
+    # The box may start and end anywhere on the canvas, including outside
+    # the axes. Each axis of the box clamps to the intersection with the
+    # current view; an axis with no intersection or with a drag span under
+    # min_span_pixels keeps its full current range. Dragging above the
+    # plot therefore zooms X only, dragging beside it zooms Y only.
 
-    def on_zoom_box(self, eclick, erelease):
-        # shift indicates the drag was intended as a pan
-        qt_modifiers = QApplication.keyboardModifiers()
-        shift_held_now = bool(qt_modifiers & Qt.KeyboardModifier.ShiftModifier)
-        if eclick.key == "shift" or erelease.key == "shift" or shift_held_now:
-            print("[INFO] Ignoring zoom box - shift was held for panning")
+    def _begin_zoom_box(self, event) -> None:
+        self.drawing_zoom_box = True
+        self._box_start_pixel = (event.x, event.y)
+        self.canvas.draw()
+        self._box_background = self.canvas.copy_from_bbox(self.canvas.figure.bbox)
+
+    def _clamped_box(
+        self,
+        event,
+    ) -> tuple[tuple[float, float], tuple[float, float]] | None:
+        inv = self.ax.transData.inverted()
+        x1, y1 = inv.transform(self._box_start_pixel)
+        x2, y2 = inv.transform((event.x, event.y))
+
+        span_px_x = abs(event.x - self._box_start_pixel[0])
+        span_px_y = abs(event.y - self._box_start_pixel[1])
+        if span_px_x < self.min_span_pixels and span_px_y < self.min_span_pixels:
+            return None
+
+        view_xlim = self.ax.get_xlim()
+        view_ylim = self.ax.get_ylim()
+
+        if span_px_x < self.min_span_pixels:
+            xlim = view_xlim
+        else:
+            x_lo, x_hi = sorted((x1, x2))
+            x_lo = max(x_lo, view_xlim[0])
+            x_hi = min(x_hi, view_xlim[1])
+            xlim = (x_lo, x_hi) if x_lo < x_hi else view_xlim
+
+        if span_px_y < self.min_span_pixels:
+            ylim = view_ylim
+        else:
+            y_lo, y_hi = sorted((y1, y2))
+            y_lo = max(y_lo, view_ylim[0])
+            y_hi = min(y_hi, view_ylim[1])
+            ylim = (y_lo, y_hi) if y_lo < y_hi else view_ylim
+
+        return xlim, ylim
+
+    def _update_zoom_box(self, event) -> None:
+        self.canvas.restore_region(self._box_background)
+        box = self._clamped_box(event)
+        if box is not None:
+            xlim, ylim = box
+            self._box_rect.set_bounds(
+                xlim[0],
+                ylim[0],
+                xlim[1] - xlim[0],
+                ylim[1] - ylim[0],
+            )
+            self._box_rect.set_visible(True)
+            self.ax.draw_artist(self._box_rect)
+        self.canvas.blit(self.canvas.figure.bbox)
+
+    def _finish_zoom_box(self, event) -> None:
+        box = self._clamped_box(event)
+        self._end_zoom_box_drawing()
+        if box is None:
+            self.canvas.draw_idle()
             return
 
-        x1, y1 = eclick.xdata, eclick.ydata
-        x2, y2 = erelease.xdata, erelease.ydata
-        if None in (x1, y1, x2, y2):
-            return
-
-        x_min, x_max = sorted((x1, x2))
-        y_min, y_max = sorted((y1, y2))
-        if x_min == x_max or y_min == y_max:
-            return
-
+        xlim, ylim = box
         self.ax.set_aspect("auto")
-        self.viewer.set_view((x_min, x_max), (y_min, y_max))
-
+        self.viewer.set_view(xlim, ylim)
         print(
-            f"[INFO] Zoomed to box: X({x_min:.1f}, {x_max:.1f}), Y({y_min:.1f}, {y_max:.1f})"
+            f"[INFO] Zoomed to box: X({xlim[0]:.1f}, {xlim[1]:.1f}), Y({ylim[0]:.1f}, {ylim[1]:.1f})"
         )
 
-        # RectangleSelector with useblit caches a stale background after use
-        self._recreate_rectangle_selector()
+    def cancel_zoom_box(self) -> None:
+        self._end_zoom_box_drawing()
+        self.canvas.draw_idle()
+
+    def _end_zoom_box_drawing(self) -> None:
+        self.drawing_zoom_box = False
+        self._box_start_pixel = None
+        self._box_background = None
+        self._box_rect.set_visible(False)
 
     # ---------- wheel zoom ----------
 
@@ -105,7 +181,7 @@ class Plot2DInteractions:
     # ---------- panning ----------
 
     def on_mouse_press(self, event):
-        if event.inaxes is None:
+        if self.panning or self.drawing_zoom_box:
             return
 
         qt_modifiers = QApplication.keyboardModifiers()
@@ -114,14 +190,18 @@ class Plot2DInteractions:
         is_shift_left = event.button == 1 and shift_held
         is_middle = event.button == 2
 
-        if is_middle or is_shift_left:
-            self.viewer.rect_selector.set_active(False)
+        if (is_middle or is_shift_left) and event.inaxes is not None:
             self.panning = True
             self._pan_start_pixel = (event.x, event.y)
             self._pan_start_xlim = self.ax.get_xlim()
             self._pan_start_ylim = self.ax.get_ylim()
+        elif event.button == 1 and not shift_held and self.zoom_box_enabled:
+            self._begin_zoom_box(event)
 
     def on_mouse_move(self, event):
+        if self.drawing_zoom_box:
+            self._update_zoom_box(event)
+            return
         if not self.panning:
             return
 
@@ -142,44 +222,23 @@ class Plot2DInteractions:
         )
 
     def on_mouse_release(self, event):
+        if self.drawing_zoom_box:
+            self._finish_zoom_box(event)
+            return
         if self.panning:
             self.viewer.record_view_history()
             self.panning = False
             self._pan_start_pixel = None
             self._pan_start_xlim = None
             self._pan_start_ylim = None
-            self.viewer.rect_selector.set_active(True)
-
-    # ---------- selector lifecycle ----------
-
-    def make_rectangle_selector(self) -> RectangleSelector:
-        selector = RectangleSelector(
-            self.ax,
-            self.on_zoom_box,
-            useblit=True,
-            button=[1],
-            minspanx=5,
-            minspany=5,
-            spancoords="pixels",
-            interactive=False,
-            ignore_event_outside=False,
-            state_modifier_keys={
-                "move": "",
-                "clear": "",
-                "square": "",
-                "center": "ctrl",
-            },
-        )
-        selector.set_active(True)
-        return selector
-
-    def _recreate_rectangle_selector(self) -> None:
-        self.viewer.rect_selector.disconnect_events()
-        self.viewer.rect_selector = self.make_rectangle_selector()
 
     # ---------- keyboard ----------
 
     def on_matplotlib_key_press(self, event):
+        if event.key == "escape" and self.drawing_zoom_box:
+            self.cancel_zoom_box()
+            return
+
         if event.key in ("h", "H"):
             self.viewer.point_hover.toggle()
             return

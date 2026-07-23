@@ -195,10 +195,6 @@ class Plot2D(QMainWindow):
         )
         self.canvas.mpl_connect("motion_notify_event", self.interactions.on_mouse_move)
 
-        self.rect_selector = self.interactions.make_rectangle_selector()
-
-        # Hover connects directly to canvas motion events to bypass
-        # RectangleSelector interception
         self._hover_connection = self.canvas.mpl_connect(
             "motion_notify_event", self._on_hover_motion_wrapper
         )
@@ -600,7 +596,7 @@ class Plot2D(QMainWindow):
     # ===== signal handlers =====
 
     def _on_hover_motion_wrapper(self, event):
-        if not self.interactions.panning:
+        if not self.interactions.panning and not self.interactions.drawing_zoom_box:
             self.point_hover.on_hover_motion(event)
 
     def _on_plot_added(self, plot_index: int):
@@ -799,7 +795,6 @@ class Plot2D(QMainWindow):
         self._shutdown_done = True
 
         self.timer.stop()
-        self.rect_selector.disconnect_events()
         super().close()
 
         if self._owns_qapp and self._app is not None:

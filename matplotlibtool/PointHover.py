@@ -54,9 +54,7 @@ class PointHoverManager:
         """Enable point hover identification."""
         self.enabled = True
 
-        # CRITICAL: Disable RectangleSelector to allow motion events through
-        if hasattr(self.viewer, "rect_selector") and self.viewer.rect_selector:
-            self.viewer.rect_selector.set_active(False)
+        self.viewer.interactions.zoom_box_enabled = False
 
         # Connect right-click handler
         if self._click_connection is None:
@@ -75,9 +73,7 @@ class PointHoverManager:
             self.canvas.mpl_disconnect(self._click_connection)
             self._click_connection = None
 
-        # Re-enable RectangleSelector
-        if hasattr(self.viewer, "rect_selector") and self.viewer.rect_selector:
-            self.viewer.rect_selector.set_active(True)
+        self.viewer.interactions.zoom_box_enabled = True
 
     def toggle(self):
         """Toggle point hover on/off."""
