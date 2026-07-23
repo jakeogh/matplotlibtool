@@ -51,6 +51,8 @@ class ControlBarSignals(QObject):
 
     # View controls
     fitViewRequested = pyqtSignal()
+    viewBackRequested = pyqtSignal()
+    viewForwardRequested = pyqtSignal()
     applyViewRequested = pyqtSignal()
     applyOffsetRequested = pyqtSignal()
 
@@ -499,6 +501,22 @@ class ControlBarManager:
         save_fig_btn.clicked.connect(self.signals.saveFigureRequested.emit)
         layout.addWidget(save_fig_btn)
         self.widgets["save_fig_btn"] = save_fig_btn
+
+        back_btn = QPushButton("◀")
+        back_btn.setMaximumWidth(30)
+        back_btn.setToolTip("Back to previous view")
+        back_btn.setEnabled(False)
+        back_btn.clicked.connect(self.signals.viewBackRequested.emit)
+        layout.addWidget(back_btn)
+        self.widgets["view_back_btn"] = back_btn
+
+        forward_btn = QPushButton("▶")
+        forward_btn.setMaximumWidth(30)
+        forward_btn.setToolTip("Forward to next view")
+        forward_btn.setEnabled(False)
+        forward_btn.clicked.connect(self.signals.viewForwardRequested.emit)
+        layout.addWidget(forward_btn)
+        self.widgets["view_forward_btn"] = forward_btn
 
         reset_btn = QPushButton("Reset View")
         reset_btn.setMaximumWidth(90)

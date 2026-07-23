@@ -52,6 +52,7 @@ from .PlotEventHandlers import PlotEventHandlers
 from .PlotGroupContext import PlotGroupContext
 from .PlotManager import PlotManager
 from .PointHover import PointHoverManager
+from .ViewHistory import ViewHistory
 from .ViewManager import ViewBounds
 from .ViewManager import ViewManager
 
@@ -185,6 +186,7 @@ class Plot2D(QMainWindow):
         self.base_xlim: tuple[float, float] = xlim
         self.base_ylim: tuple[float, float] = ylim
         self.view_manager.set_view_bounds(xlim=xlim, ylim=ylim)
+        self.view_history = ViewHistory()
 
         # Panning
         self.canvas.mpl_connect("button_press_event", self.interactions.on_mouse_press)
@@ -239,6 +241,7 @@ class Plot2D(QMainWindow):
 
         self.set_dark_mode(self.dark_mode)
         self._update_plot()
+        self.view_history.record(ViewBounds(xlim=xlim, ylim=ylim))
 
         # Timer ~60FPS
         self.timer = QTimer()
@@ -263,12 +266,15 @@ class Plot2D(QMainWindow):
         self,
         xlim: tuple[float, float],
         ylim: tuple[float, float],
+        record: bool = True,
     ) -> ViewBounds:
         """
         Commit new view bounds: apply, reset keyboard scaling, re-render.
 
         The single entry point for every discrete view change. Re-rendering
         here is what keeps culled artist data consistent with the axes.
+        record=False applies without adding a history entry; continuous
+        gestures use it for intermediate states and record once on release.
         """
         bounds = ViewBounds(xlim=xlim, ylim=ylim)
 
@@ -280,7 +286,35 @@ class Plot2D(QMainWindow):
         self.view_manager.apply(bounds)
         self._update_plot()
         self.canvas.draw_idle()
+        if record:
+            self.view_history.record(bounds)
+            self._sync_history_buttons()
         return bounds
+
+    def record_view_history(self) -> None:
+        """Commit the current view as a history entry (end of a gesture)."""
+        self.view_history.record(
+            ViewBounds(xlim=self.base_xlim, ylim=self.base_ylim)
+        )
+        self._sync_history_buttons()
+
+    def view_back(self) -> None:
+        bounds = self.view_history.back()
+        if bounds is not None:
+            self.set_view(bounds.xlim, bounds.ylim, record=False)
+        self._sync_history_buttons()
+
+    def view_forward(self) -> None:
+        bounds = self.view_history.forward()
+        if bounds is not None:
+            self.set_view(bounds.xlim, bounds.ylim, record=False)
+        self._sync_history_buttons()
+
+    def _sync_history_buttons(self) -> None:
+        back_btn = self.control_bar_manager.get_widget("view_back_btn")
+        forward_btn = self.control_bar_manager.get_widget("view_forward_btn")
+        back_btn.setEnabled(self.view_history.can_go_back)
+        forward_btn.setEnabled(self.view_history.can_go_forward)
 
     def apply_keyboard_scale(self) -> None:
         """Render base bounds divided by the cumulative keyboard scale."""

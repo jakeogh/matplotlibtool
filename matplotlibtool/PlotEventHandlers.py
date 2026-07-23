@@ -174,6 +174,12 @@ class PlotEventHandlers:
                 f"[INFO] Fit view to data bounds: X({bounds.xlim[0]:.3f}, {bounds.xlim[1]:.3f}), Y({bounds.ylim[0]:.3f}, {bounds.ylim[1]:.3f})"
             )
 
+    def view_back(self) -> None:
+        self.viewer.view_back()
+
+    def view_forward(self) -> None:
+        self.viewer.view_forward()
+
     def reset_view(self) -> None:
         with self.viewer.busy_manager.busy_operation("Resetting view"):
             self.viewer.fit_view(pad_ratio=0.1)

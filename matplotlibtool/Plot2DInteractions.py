@@ -138,10 +138,12 @@ class Plot2DInteractions:
         self.viewer.set_view(
             (self._pan_start_xlim[0] + data_dx, self._pan_start_xlim[1] + data_dx),
             (self._pan_start_ylim[0] + data_dy, self._pan_start_ylim[1] + data_dy),
+            record=False,
         )
 
     def on_mouse_release(self, event):
         if self.panning:
+            self.viewer.record_view_history()
             self.panning = False
             self._pan_start_pixel = None
             self._pan_start_xlim = None
