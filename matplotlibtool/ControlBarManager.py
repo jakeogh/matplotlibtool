@@ -51,6 +51,7 @@ class ControlBarSignals(QObject):
 
     # Analysis controls
     settleToggled = pyqtSignal(bool)
+    analyzeRequested = pyqtSignal()
 
     # View controls
     fitViewRequested = pyqtSignal()
@@ -536,6 +537,18 @@ class ControlBarManager:
         layout.addWidget(settle_chk)
         self.widgets["settle_chk"] = settle_chk
 
+        analyze_btn = QPushButton("Analyze")
+        analyze_btn.setMaximumWidth(70)
+        analyze_btn.setToolTip(
+            "Segment the largest step in the current x window of the selected "
+            "plot: edge, linear (single-pole) region, settled point. Fits the "
+            "log-residual slope, prints a report, and enables Settle display "
+            "with the converged reference."
+        )
+        analyze_btn.clicked.connect(self.signals.analyzeRequested.emit)
+        layout.addWidget(analyze_btn)
+        self.widgets["analyze_btn"] = analyze_btn
+
         back_btn = QPushButton("◀")
         back_btn.setMaximumWidth(30)
         back_btn.setToolTip("Back to previous view")
@@ -870,6 +883,13 @@ class ControlBarManager:
             chk.blockSignals(True)
             chk.setChecked(checked)
             chk.blockSignals(False)
+
+    def set_settle_checked(self, checked: bool):
+        """Set settle checkbox state without emitting the toggle signal."""
+        chk = self.widgets["settle_chk"]
+        chk.blockSignals(True)
+        chk.setChecked(checked)
+        chk.blockSignals(False)
 
     def set_plots(
         self,

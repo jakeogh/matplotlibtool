@@ -10,6 +10,8 @@ from pathlib import Path
 import numpy as np
 
 from .MouseMode import MouseMode
+from .SettleAnalysis import SettleAnalysisArtists
+from .SettleAnalysis import analyze_settle
 
 
 class PlotEventHandlers:
@@ -21,6 +23,8 @@ class PlotEventHandlers:
         # throttle keyboard scaling to avoid key-repeat render storms
         self.last_scale_update = 0.0
         self.scale_throttle_ms = 50
+
+        self._settle_artists: SettleAnalysisArtists | None = None
 
     def _should_throttle_scaling(self) -> bool:
         now = time.time() * 1000
@@ -79,9 +83,93 @@ class PlotEventHandlers:
         else:
             for plot in self.viewer.plot_manager.plots:
                 plot.settle_ref = None
+            if self._settle_artists is not None:
+                self._settle_artists.clear()
             print("[INFO] Settle mode disabled")
 
         self._refit_y_keep_x()
+
+    def on_analyze_requested(self) -> None:
+        """Segment and fit the largest step in view for the selected plot."""
+        pm = self.viewer.plot_manager
+        selected = pm.get_selected_plots()
+        if len(selected) != 1:
+            raise ValueError(
+                "settle analysis: select a single plot in the Plot/Group dropdown"
+            )
+        plot_index = selected[0]
+        plot = pm.plots[plot_index]
+        name = pm.get_plot_name(plot_index) or f"Plot {plot_index + 1}"
+
+        xlim = self.viewer.view_manager.get_current_bounds().xlim
+        seg = analyze_settle(
+            plot.points[:, 0] + plot.offset_x,
+            plot.points[:, 1],
+            xlim,
+        )
+
+        decade = -1.0 / seg.slope
+        print(f"[INFO] Settle analysis: {name}")
+        print(
+            f"[INFO]   step:     {seg.step_height:+.6g} "
+            f"(pre {seg.y_pre:.6g} -> final {seg.y_final:.6g})"
+        )
+        print(
+            f"[INFO]   noise:    sigma {seg.noise_sigma:.4g} "
+            f"(pre-step baseline, {seg.baseline_n} samples)"
+        )
+        print(f"[INFO]   edge:     x {seg.edge_start_x:.6g} .. {seg.edge_end_x:.6g}")
+        print(
+            f"[INFO]   linear:   x {seg.linear_start_x:.6g} .. "
+            f"{seg.linear_end_x:.6g} ({seg.n_fit_points} pts), slope "
+            f"{seg.slope:.4g} dec/x, rms {seg.fit_rms:.3g} dec"
+        )
+        print(
+            f"[INFO]   tau:      {seg.tau:.4g} x-units "
+            f"(1 decade per {decade:.4g} x-units)"
+        )
+        print(
+            f"[INFO]   settled:  x {seg.settled_x:.6g}, settling time "
+            f"{seg.settling_time:.4g} x-units to the 4-sigma band"
+        )
+        halves = (seg.slope_first_half, seg.slope_second_half)
+        if abs(halves[0] - halves[1]) > 0.15 * abs(seg.slope):
+            print(
+                f"[INFO]   WARNING: slope changes {halves[0]:.4g} -> "
+                f"{halves[1]:.4g} dec/x across the region; possible secondary "
+                f"pole or thermal tail"
+            )
+        if seg.lead_trim_decades > 0.5:
+            print(
+                f"[INFO]   WARNING: fit rejected the top "
+                f"{seg.lead_trim_decades:.2g} decades of the settle; the early "
+                f"response is not on this pole (secondary pole or slew), tau "
+                f"describes the late tail only"
+            )
+        if seg.tail_trim_decades > 0.5:
+            print(
+                f"[INFO]   WARNING: fit rejected the bottom "
+                f"{seg.tail_trim_decades:.2g} decades above the noise floor; "
+                f"the late response departs from this pole (thermal tail or "
+                f"dielectric absorption)"
+            )
+
+        plot.settle_ref = seg.y_final
+        self.viewer.control_bar_manager.set_settle_checked(True)
+
+        span = seg.span_x1 - seg.baseline_x0
+        pad = span * 0.02
+        self.viewer.set_view(
+            (seg.baseline_x0 - pad, seg.span_x1 + pad),
+            self.viewer.view_manager.get_current_bounds().ylim,
+            record=False,
+        )
+        self._refit_y_keep_x()
+
+        if self._settle_artists is None:
+            self._settle_artists = SettleAnalysisArtists(self.viewer.ax)
+        self._settle_artists.draw(seg)
+        self.viewer.canvas.draw_idle()
 
     def _refit_y_keep_x(self, pad_ratio: float = 0.05) -> None:
         """Refit the y range to in-view display data without moving the x window."""
