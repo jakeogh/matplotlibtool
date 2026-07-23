@@ -25,6 +25,7 @@ class PlotEventHandlers:
         self.scale_throttle_ms = 50
 
         self._settle_artists: SettleAnalysisArtists | None = None
+        self._ref_annotation = None
 
     def _should_throttle_scaling(self) -> bool:
         now = time.time() * 1000
@@ -88,7 +89,43 @@ class PlotEventHandlers:
                 self._settle_artists.clear()
             print("[INFO] Settle mode disabled")
 
+        self._update_ref_annotation()
         self._refit_y_keep_x()
+
+    def _update_ref_annotation(self) -> None:
+        """Annotate each visible plot's settle reference (codes and physical)."""
+        if self._ref_annotation is not None:
+            self._ref_annotation.remove()
+            self._ref_annotation = None
+
+        pm = self.viewer.plot_manager
+        y_mgr = self.viewer.view_manager.secondary_axis_manager.y_axis_manager
+
+        lines = []
+        for i, plot in enumerate(pm.plots):
+            if plot.settle_ref is None or not plot.visible:
+                continue
+            name = pm.get_plot_name(i) or f"Plot {i + 1}"
+            line = f"{name}: ref {plot.settle_ref:,.1f}"
+            if y_mgr.is_enabled() and y_mgr.config is not None:
+                cfg = y_mgr.config
+                physical = cfg.scale * plot.settle_ref + cfg.offset
+                line += f" = {physical:.8g} {cfg.unit}"
+            lines.append(line)
+
+        if not lines:
+            return
+
+        self._ref_annotation = self.viewer.ax.text(
+            0.02,
+            0.98,
+            "\n".join(lines),
+            transform=self.viewer.ax.transAxes,
+            color="white",
+            fontsize=9,
+            verticalalignment="top",
+            zorder=1000,
+        )
 
     def on_analyze_requested(self) -> None:
         """Segment and fit the largest step in view for the selected plot."""
@@ -158,6 +195,7 @@ class PlotEventHandlers:
         plot.settle_ref = seg.y_final
         self.viewer.control_bar_manager.set_settle_checked(True)
         self.viewer.view_manager.secondary_axis_manager.set_residual_mode(True)
+        self._update_ref_annotation()
 
         span = seg.span_x1 - seg.baseline_x0
         pad = span * 0.02
