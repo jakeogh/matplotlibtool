@@ -57,6 +57,7 @@ class PlotEventHandlers:
 
     def on_settle_toggled(self, enabled: bool) -> None:
         """Toggle log10|y - ref| display; ref from the in-view tail per plot."""
+        self.viewer.view_manager.secondary_axis_manager.set_residual_mode(enabled)
         if enabled:
             xlim = self.viewer.view_manager.get_current_bounds().xlim
             for i, plot in enumerate(self.viewer.plot_manager.plots):
@@ -156,6 +157,7 @@ class PlotEventHandlers:
 
         plot.settle_ref = seg.y_final
         self.viewer.control_bar_manager.set_settle_checked(True)
+        self.viewer.view_manager.secondary_axis_manager.set_residual_mode(True)
 
         span = seg.span_x1 - seg.baseline_x0
         pad = span * 0.02

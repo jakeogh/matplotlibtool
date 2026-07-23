@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 from matplotlib.axes import Axes
 from matplotlib.ticker import AutoLocator
+from matplotlib.ticker import EngFormatter
 from matplotlib.ticker import FuncFormatter
 from matplotlib.ticker import MaxNLocator
 
@@ -34,10 +35,17 @@ class AxisSecondaryManager:
         self.secondary_ax: None | Axes = None
         self.config: None | AxisSecondaryConfig = None
         self._enabled = False
+        self._residual_mode = False
         self._current_unit_str = ""
         self._display_min = 0
         self._display_max = 1
         self._conversion_factor = 1.0
+
+    def set_residual_mode(self, enabled: bool) -> None:
+        """Log-residual display: tick at primary position L reads 10^L * |scale|."""
+        self._residual_mode = enabled
+        if self._enabled:
+            self._update_secondary_axis()
 
     def enable_secondary_axis(self, config: AxisSecondaryConfig) -> None:
         """Enable secondary axis with given configuration."""
@@ -69,6 +77,10 @@ class AxisSecondaryManager:
             primary_min, primary_max = self.primary_ax.get_ylim()
         else:
             primary_min, primary_max = self.primary_ax.get_xlim()
+
+        if self._residual_mode and self.axis_type == AxisType.Y:
+            self._render_residual_axis(primary_min, primary_max)
+            return
 
         # Transform to secondary axis values
         secondary_min = self.config.scale * primary_min + self.config.offset
@@ -179,6 +191,39 @@ class AxisSecondaryManager:
             self.secondary_ax.spines["left"].set_visible(False)
             self.secondary_ax.spines["right"].set_visible(False)
 
+        self.secondary_ax.set_visible(True)
+
+    def _render_residual_axis(
+        self,
+        primary_min: float,
+        primary_max: float,
+    ) -> None:
+        """
+        Secondary axis for log10-residual display. The primary y is decades of
+        residual in primary units; the physical residual magnitude at position
+        L is 10^L * |scale| (the linear mapping's offset cancels in a
+        difference), rendered with engineering prefixes.
+        """
+        scale = abs(self.config.scale)
+        eng = EngFormatter(unit=self.config.unit, places=1)
+
+        self.secondary_ax.set_ylim(primary_min, primary_max)
+        self.secondary_ax.yaxis.set_major_locator(AutoLocator())
+        self.secondary_ax.yaxis.set_major_formatter(
+            FuncFormatter(lambda value, pos: eng(10.0**value * scale))
+        )
+
+        self._current_unit_str = self.config.unit
+        self._conversion_factor = 1.0
+
+        self.secondary_ax.set_ylabel(f"|\u0394{self.config.label}|", color="white")
+        self.secondary_ax.tick_params(
+            axis="y",
+            colors="white",
+            labelcolor="white",
+        )
+        for spine in self.secondary_ax.spines.values():
+            spine.set_visible(False)
         self.secondary_ax.set_visible(True)
 
     def update_on_primary_change(self) -> None:

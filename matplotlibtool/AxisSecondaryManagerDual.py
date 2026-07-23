@@ -40,6 +40,10 @@ class AxisSecondaryManagerDual:
         else:
             self.x_axis_manager.disable_secondary_axis()
 
+    def set_residual_mode(self, enabled: bool) -> None:
+        """Switch the Y secondary axis to/from log-residual display."""
+        self.y_axis_manager.set_residual_mode(enabled)
+
     def update_on_primary_change(self) -> None:
         """Update both secondary axes when primary axes change."""
         self.x_axis_manager.update_on_primary_change()
