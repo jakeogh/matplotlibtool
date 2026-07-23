@@ -38,6 +38,8 @@ class Plot2DInteractions:
         self.zoom_box_enabled = True
         self.drawing_zoom_box = False
         self.min_span_pixels = 5.0
+        self.arrow_pan_fraction = 0.1
+        self.arrow_pan_fine_fraction = 0.02
         self._box_start_pixel: tuple[float, float] | None = None
         self._box_background = None
         self._box_rect = Rectangle(
@@ -234,11 +236,39 @@ class Plot2DInteractions:
 
     # ---------- keyboard ----------
 
+    _ARROW_DIRECTIONS = {
+        "left": (-1, 0),
+        "right": (1, 0),
+        "up": (0, 1),
+        "down": (0, -1),
+    }
+
+    def _pan_step(self, dx_frac: float, dy_frac: float) -> None:
+        xlim = self.ax.get_xlim()
+        ylim = self.ax.get_ylim()
+        dx = (xlim[1] - xlim[0]) * dx_frac
+        dy = (ylim[1] - ylim[0]) * dy_frac
+        self.viewer.set_view(
+            (xlim[0] + dx, xlim[1] + dx),
+            (ylim[0] + dy, ylim[1] + dy),
+        )
+
     def on_matplotlib_key_press(self, event):
         if event.key == "escape" and self.drawing_zoom_box:
             self.cancel_zoom_box()
             return
         if event.key == "escape" and self.viewer.point_hover.clear_measurement_if_active():
+            return
+
+        key = event.key
+        fine = False
+        if key and key.startswith("shift+"):
+            fine = True
+            key = key.removeprefix("shift+")
+        if key in self._ARROW_DIRECTIONS:
+            sx, sy = self._ARROW_DIRECTIONS[key]
+            frac = self.arrow_pan_fine_fraction if fine else self.arrow_pan_fraction
+            self._pan_step(sx * frac, sy * frac)
             return
 
         if event.key in ("h", "H"):
