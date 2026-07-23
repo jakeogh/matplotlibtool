@@ -51,6 +51,65 @@ class PlotEventHandlers:
     def on_dark_mode_toggled(self, enabled: bool):
         self.viewer.set_dark_mode(enabled)
 
+    def on_settle_toggled(self, enabled: bool) -> None:
+        """Toggle log10|y - ref| display; ref from the in-view tail per plot."""
+        if enabled:
+            xlim = self.viewer.view_manager.get_current_bounds().xlim
+            for i, plot in enumerate(self.viewer.plot_manager.plots):
+                if not plot.visible or len(plot.points) == 0:
+                    plot.settle_ref = None
+                    continue
+
+                x = plot.points[:, 0] + plot.offset_x
+                idx = np.flatnonzero((x >= xlim[0]) & (x <= xlim[1]))
+                name = self.viewer.plot_manager.get_plot_name(i) or f"Plot {i + 1}"
+                if idx.size < 16:
+                    raise ValueError(
+                        f"settle mode: {name} has {idx.size} samples in view, "
+                        f"need >= 16 to estimate a settled reference"
+                    )
+
+                idx = idx[np.argsort(plot.points[idx, 0], kind="stable")]
+                tail = idx[-max(16, idx.size // 10) :]
+                plot.settle_ref = float(plot.points[tail, 1].mean())
+                print(
+                    f"[INFO] Settle ref {name}: {plot.settle_ref:.6g} "
+                    f"({tail.size} tail samples)"
+                )
+        else:
+            for plot in self.viewer.plot_manager.plots:
+                plot.settle_ref = None
+            print("[INFO] Settle mode disabled")
+
+        self._refit_y_keep_x()
+
+    def _refit_y_keep_x(self, pad_ratio: float = 0.05) -> None:
+        """Refit the y range to in-view display data without moving the x window."""
+        xlim = self.viewer.view_manager.get_current_bounds().xlim
+        ymin = np.inf
+        ymax = -np.inf
+
+        for plot in self.viewer.plot_manager.get_visible_plots():
+            if len(plot.points) == 0:
+                continue
+            points = plot.display_points()
+            x = points[:, 0] + plot.offset_x
+            mask = (x >= xlim[0]) & (x <= xlim[1])
+            if not mask.any():
+                continue
+            y = points[mask, 1] + plot.offset_y
+            ymin = min(ymin, float(y.min()))
+            ymax = max(ymax, float(y.max()))
+
+        if not np.isfinite(ymin):
+            return
+
+        span = ymax - ymin
+        if span == 0.0:
+            span = 1.0
+        pad = span * pad_ratio
+        self.viewer.set_view(xlim, (ymin - pad, ymax + pad))
+
     def on_add_files(self):
         """Open QFileDialog for supported file types and append resulting plots."""
         paths = self.viewer.file_loader_registry.open_file_dialog(self.viewer)

@@ -49,6 +49,9 @@ class ControlBarSignals(QObject):
     axesGridColorPickRequested = pyqtSignal()
     adcGridColorPickRequested = pyqtSignal()
 
+    # Analysis controls
+    settleToggled = pyqtSignal(bool)
+
     # View controls
     fitViewRequested = pyqtSignal()
     mouseModeChanged = pyqtSignal(str)
@@ -522,6 +525,16 @@ class ControlBarManager:
             layout.addWidget(mode_btn)
             self.widgets[f"mode_{mode_name.lower()}_btn"] = mode_btn
         self.widgets["mode_zoom_btn"].setChecked(True)
+
+        settle_chk = QCheckBox("Settle")
+        settle_chk.setToolTip(
+            "Y → log10|y − ref| per visible plot; "
+            "ref = mean of the last 10% of in-view samples at toggle time. "
+            "A single pole plots as a straight line; slope gives τ directly."
+        )
+        settle_chk.toggled.connect(self.signals.settleToggled.emit)
+        layout.addWidget(settle_chk)
+        self.widgets["settle_chk"] = settle_chk
 
         back_btn = QPushButton("◀")
         back_btn.setMaximumWidth(30)

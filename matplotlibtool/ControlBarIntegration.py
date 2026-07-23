@@ -57,6 +57,8 @@ class ControlBarIntegration:
             "paletteChanged": self.viewer.event_handlers.on_palette_changed,
             "colorFieldChanged": self.viewer.event_handlers.on_color_field_changed,
             "darkModeToggled": self.viewer.event_handlers.on_dark_mode_toggled,
+            # Analysis controls
+            "settleToggled": self.viewer.event_handlers.on_settle_toggled,
             # Grid controls
             "gridSpacingChanged": self.viewer.event_handlers.on_grid_changed,
             "axesGridColorPickRequested": self.viewer.event_handlers.on_pick_axes_grid_color,

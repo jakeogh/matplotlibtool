@@ -375,13 +375,14 @@ class Plot2D(QMainWindow):
         """Fit view to all visible data; unit square when there is none."""
         all_points = []
         for plot in self.plot_manager.get_visible_plots():
+            points = plot.display_points()
             if plot.offset_x != 0.0 or plot.offset_y != 0.0:
                 all_points.append(
-                    plot.points
+                    points
                     + np.array([plot.offset_x, plot.offset_y], dtype=np.float32)
                 )
             else:
-                all_points.append(plot.points)
+                all_points.append(points)
 
         bounds = ViewManager.compute_fit_bounds(all_points, pad_ratio)
         if bounds is None:

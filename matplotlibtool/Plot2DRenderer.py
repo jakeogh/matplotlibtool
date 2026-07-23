@@ -71,12 +71,13 @@ class Matplotlib2DRenderer:
                     plot.scatter_artist.set_visible(False)
                 continue
 
+            base_points = plot.display_points()
             if plot.offset_x != 0.0 or plot.offset_y != 0.0:
-                points = plot.points + np.array(
+                points = base_points + np.array(
                     [plot.offset_x, plot.offset_y], dtype=np.float32
                 )
             else:
-                points = plot.points
+                points = base_points
 
             x = points[:, 0]
             y = points[:, 1]
