@@ -46,7 +46,10 @@ class ArrayFieldPanel:
     def __init__(self, integration: ArrayFieldIntegration):
         self.integration = integration
         self.button: QToolButton | None = None
+        self.max_popup_height = 700
+        self._content: QWidget | None = None
         self._content_layout: QVBoxLayout | None = None
+        self._scroll: QScrollArea | None = None
 
     def create_button(self, parent=None) -> QToolButton:
         button = QToolButton(parent)
@@ -56,20 +59,18 @@ class ArrayFieldPanel:
         )
 
         menu = QMenu(button)
-        content = QWidget()
-        self._content_layout = QVBoxLayout(content)
+        self._content = QWidget()
+        self._content_layout = QVBoxLayout(self._content)
         self._content_layout.setContentsMargins(10, 8, 10, 8)
         self._content_layout.setSpacing(4)
 
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setWidget(content)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setMaximumHeight(500)
-        scroll.setMinimumWidth(280)
+        self._scroll = QScrollArea()
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setWidget(self._content)
+        self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         action = QWidgetAction(menu)
-        action.setDefaultWidget(scroll)
+        action.setDefaultWidget(self._scroll)
         menu.addAction(action)
         menu.aboutToShow.connect(self.rebuild)
 
@@ -95,19 +96,34 @@ class ArrayFieldPanel:
 
         if not manager.arrays:
             self._content_layout.addWidget(QLabel("no arrays loaded"))
-            return
-
-        for array_index in sorted(manager.arrays):
-            info = manager.get_array_info(array_index)
-            header = QLabel(
-                f"<b>{info['name']}</b>&nbsp;&nbsp;<i>x: {info['x_field']}</i>"
-            )
-            self._content_layout.addWidget(header)
-
-            for field_name in manager.get_array_fields(array_index):
-                self._content_layout.addLayout(
-                    self._build_field_row(array_index, field_name)
+        else:
+            for array_index in sorted(manager.arrays):
+                info = manager.get_array_info(array_index)
+                header = QLabel(
+                    f"<b>{info['name']}</b>&nbsp;&nbsp;<i>x: {info['x_field']}</i>"
                 )
+                self._content_layout.addWidget(header)
+
+                for field_name in manager.get_array_fields(array_index):
+                    self._content_layout.addLayout(
+                        self._build_field_row(array_index, field_name)
+                    )
+
+        self._size_popup_to_content()
+
+    def _size_popup_to_content(self) -> None:
+        # QScrollArea's own sizeHint ignores its content, which leaves the
+        # menu at a stub height; force min sizes from the content instead
+        self._content_layout.activate()
+        self._content.adjustSize()
+        hint = self._content.sizeHint()
+        scrollbar_width = self._scroll.verticalScrollBar().sizeHint().width()
+        frame = 2 * self._scroll.frameWidth()
+
+        height = min(hint.height() + frame, self.max_popup_height)
+        self._scroll.setMinimumHeight(height)
+        self._scroll.setMaximumHeight(self.max_popup_height)
+        self._scroll.setMinimumWidth(hint.width() + scrollbar_width + frame)
 
     def _build_field_row(self, array_index: int, field_name: str) -> QHBoxLayout:
         row = QHBoxLayout()
