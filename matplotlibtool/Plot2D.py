@@ -746,7 +746,6 @@ class Plot2D(QMainWindow):
         main_layout = QVBoxLayout()
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
-        main_layout.addWidget(self.canvas, 1)
 
         self.control_bar_manager = ControlBarManager(self, COLOR_PALETTES)
 
@@ -754,7 +753,9 @@ class Plot2D(QMainWindow):
             field_button=self.array_field_integration.create_panel_button()
         )
 
+        # controls above the canvas so popups open downward with room to grow
         main_layout.addWidget(controls_widget)
+        main_layout.addWidget(self.canvas, 1)
 
         central.setLayout(main_layout)
         self.setCentralWidget(central)
