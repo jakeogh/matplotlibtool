@@ -254,7 +254,7 @@ class Plot2DInteractions:
         if event.key == "escape" and self.viewer.point_hover.clear_measurement_if_active():
             return
 
-        if event.key in ("q", "escape"):
+        if event.key in ("q", "escape") and not self.viewer.embedded:
             print(f"[INFO] '{event.key}' pressed, closing viewer.")
             self.viewer.close()
         elif event.key:

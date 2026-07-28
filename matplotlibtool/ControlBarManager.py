@@ -548,11 +548,12 @@ class ControlBarManager:
         layout.addWidget(reset_btn)
         self.widgets["reset_btn"] = reset_btn
 
-        exit_btn = QPushButton("Exit")
-        exit_btn.setMaximumWidth(60)
-        exit_btn.clicked.connect(self.signals.exitRequested.emit)
-        layout.addWidget(exit_btn)
-        self.widgets["exit_btn"] = exit_btn
+        if not self.parent.embedded:
+            exit_btn = QPushButton("Exit")
+            exit_btn.setMaximumWidth(60)
+            exit_btn.clicked.connect(self.signals.exitRequested.emit)
+            layout.addWidget(exit_btn)
+            self.widgets["exit_btn"] = exit_btn
 
         info_label = QLabel("")
         layout.addWidget(info_label)

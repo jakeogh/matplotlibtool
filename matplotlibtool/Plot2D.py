@@ -88,6 +88,7 @@ class Plot2D(QMainWindow):
         figsize: tuple[float, float] | None = None,
         colormap: str = "turbo",
         draw_lines: bool = False,
+        embedded: bool = False,
     ):
         self._owns_qapp = False
         self._app = QApplication.instance()
@@ -98,6 +99,7 @@ class Plot2D(QMainWindow):
         super().__init__()
 
         self.auto_aspect = auto_aspect
+        self.embedded = embedded
         self.disable_antialiasing = disable_antialiasing
         self.dark_mode = dark_mode
         self.default_colormap = colormap
@@ -245,6 +247,7 @@ class Plot2D(QMainWindow):
         self.view_history.record(ViewBounds(xlim=xlim, ylim=ylim))
 
         self._hover_shortcut = QShortcut(QKeySequence("H"), self)
+        self._hover_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
         self._hover_shortcut.activated.connect(self.toggle_hover_mode)
         self._apply_mouse_mode_cursor(MouseMode.ZOOM)
 
