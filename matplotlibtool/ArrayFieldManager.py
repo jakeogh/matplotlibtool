@@ -200,30 +200,6 @@ class ArrayFieldManager:
             return self.arrays[array_index]["name"]
         return None
 
-    def unregister_field_plot(
-        self,
-        array_index: int,
-        field_name: str,
-    ) -> int | None:
-        """
-        Mark a field as no longer plotted.
-
-        Args:
-            array_index: Index of the array
-            field_name: Name of the field
-
-        Returns:
-            The plot index that was removed, or None
-        """
-        if array_index in self.array_fields:
-            plot_index = self.array_fields[array_index].get(field_name)
-            if plot_index is not None:
-                self.array_fields[array_index][field_name] = None
-                if plot_index in self.plot_to_array_field:
-                    del self.plot_to_array_field[plot_index]
-                return plot_index
-        return None
-
     def get_array_count(self) -> int:
         """Get total number of registered arrays."""
         return len(self.arrays)

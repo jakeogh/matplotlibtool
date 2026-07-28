@@ -295,9 +295,7 @@ class PointHoverManager:
             if len(plot.points) == 0:
                 continue
 
-            offset_points = plot.display_points() + np.array(
-                [plot.offset_x, plot.offset_y]
-            )
+            offset_points = plot.display_points()
 
             mask = (
                 (offset_points[:, 0] >= cull_xlim[0])

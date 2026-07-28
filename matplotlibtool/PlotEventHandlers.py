@@ -10,8 +10,6 @@ from pathlib import Path
 import numpy as np
 
 from .MouseMode import MouseMode
-from .SettleAnalysis import SettleAnalysisArtists
-from .SettleAnalysis import analyze_settle
 
 
 class PlotEventHandlers:
@@ -23,9 +21,6 @@ class PlotEventHandlers:
         # throttle keyboard scaling to avoid key-repeat render storms
         self.last_scale_update = 0.0
         self.scale_throttle_ms = 50
-
-        self._settle_artists: SettleAnalysisArtists | None = None
-        self._ref_annotation = None
 
     def _should_throttle_scaling(self) -> bool:
         now = time.time() * 1000
@@ -55,195 +50,6 @@ class PlotEventHandlers:
 
     def on_dark_mode_toggled(self, enabled: bool):
         self.viewer.set_dark_mode(enabled)
-
-    def on_settle_toggled(self, enabled: bool) -> None:
-        """Toggle log10|y - ref| display; ref from the in-view tail per plot."""
-        self.viewer.view_manager.secondary_axis_manager.set_residual_mode(enabled)
-        self._set_settle_axis_label(enabled)
-        if enabled:
-            xlim = self.viewer.view_manager.get_current_bounds().xlim
-            for i, plot in enumerate(self.viewer.plot_manager.plots):
-                if not plot.visible or len(plot.points) == 0:
-                    plot.settle_ref = None
-                    continue
-
-                x = plot.points[:, 0] + plot.offset_x
-                idx = np.flatnonzero((x >= xlim[0]) & (x <= xlim[1]))
-                name = self.viewer.plot_manager.get_plot_name(i) or f"Plot {i + 1}"
-                if idx.size < 16:
-                    raise ValueError(
-                        f"settle mode: {name} has {idx.size} samples in view, "
-                        f"need >= 16 to estimate a settled reference"
-                    )
-
-                idx = idx[np.argsort(plot.points[idx, 0], kind="stable")]
-                tail = idx[-max(16, idx.size // 10) :]
-                plot.settle_ref = float(plot.points[tail, 1].mean())
-                print(
-                    f"[INFO] Settle ref {name}: {plot.settle_ref:.6g} "
-                    f"({tail.size} tail samples)"
-                )
-        else:
-            for plot in self.viewer.plot_manager.plots:
-                plot.settle_ref = None
-            if self._settle_artists is not None:
-                self._settle_artists.clear()
-            print("[INFO] Settle mode disabled")
-
-        self._update_ref_annotation()
-        self._refit_y_keep_x()
-
-    def _set_settle_axis_label(self, enabled: bool) -> None:
-        color = "white" if self.viewer.dark_mode else "black"
-        label = "log10 |y \u2212 ref|  (decades of ADC codes)" if enabled else ""
-        self.viewer.ax.set_ylabel(label, color=color)
-
-    def _update_ref_annotation(self) -> None:
-        """Annotate each visible plot's settle reference (codes and physical)."""
-        if self._ref_annotation is not None:
-            self._ref_annotation.remove()
-            self._ref_annotation = None
-
-        pm = self.viewer.plot_manager
-        y_mgr = self.viewer.view_manager.secondary_axis_manager.y_axis_manager
-
-        lines = []
-        for i, plot in enumerate(pm.plots):
-            if plot.settle_ref is None or not plot.visible:
-                continue
-            name = pm.get_plot_name(i) or f"Plot {i + 1}"
-            line = f"{name}: ref {plot.settle_ref:,.1f}"
-            if y_mgr.is_enabled() and y_mgr.config is not None:
-                cfg = y_mgr.config
-                physical = cfg.scale * plot.settle_ref + cfg.offset
-                line += f" = {physical:.8g} {cfg.unit}"
-            lines.append(line)
-
-        if not lines:
-            return
-
-        self._ref_annotation = self.viewer.ax.text(
-            0.02,
-            0.98,
-            "\n".join(lines),
-            transform=self.viewer.ax.transAxes,
-            color="white",
-            fontsize=9,
-            verticalalignment="top",
-            zorder=1000,
-        )
-
-    def on_analyze_requested(self) -> None:
-        """Segment and fit the largest step in view for the selected plot."""
-        pm = self.viewer.plot_manager
-        selected = pm.get_selected_plots()
-        if len(selected) != 1:
-            raise ValueError(
-                "settle analysis: select a single plot in the Plot/Group dropdown"
-            )
-        plot_index = selected[0]
-        plot = pm.plots[plot_index]
-        name = pm.get_plot_name(plot_index) or f"Plot {plot_index + 1}"
-
-        xlim = self.viewer.view_manager.get_current_bounds().xlim
-        seg = analyze_settle(
-            plot.points[:, 0] + plot.offset_x,
-            plot.points[:, 1],
-            xlim,
-        )
-
-        decade = -1.0 / seg.slope
-        print(f"[INFO] Settle analysis: {name}")
-        print(
-            f"[INFO]   step:     {seg.step_height:+.6g} "
-            f"(pre {seg.y_pre:.6g} -> final {seg.y_final:.6g})"
-        )
-        print(
-            f"[INFO]   noise:    sigma {seg.noise_sigma:.4g} "
-            f"(pre-step baseline, {seg.baseline_n} samples)"
-        )
-        print(f"[INFO]   edge:     x {seg.edge_start_x:.6g} .. {seg.edge_end_x:.6g}")
-        print(
-            f"[INFO]   linear:   x {seg.linear_start_x:.6g} .. "
-            f"{seg.linear_end_x:.6g} ({seg.n_fit_points} pts), slope "
-            f"{seg.slope:.4g} dec/x, rms {seg.fit_rms:.3g} dec"
-        )
-        print(
-            f"[INFO]   tau:      {seg.tau:.4g} x-units "
-            f"(1 decade per {decade:.4g} x-units)"
-        )
-        print(
-            f"[INFO]   settled:  x {seg.settled_x:.6g}, settling time "
-            f"{seg.settling_time:.4g} x-units to the 4-sigma band"
-        )
-        halves = (seg.slope_first_half, seg.slope_second_half)
-        if abs(halves[0] - halves[1]) > 0.15 * abs(seg.slope):
-            print(
-                f"[INFO]   WARNING: slope changes {halves[0]:.4g} -> "
-                f"{halves[1]:.4g} dec/x across the region; possible secondary "
-                f"pole or thermal tail"
-            )
-        if seg.lead_trim_decades > 0.5:
-            print(
-                f"[INFO]   WARNING: fit rejected the top "
-                f"{seg.lead_trim_decades:.2g} decades of the settle; the early "
-                f"response is not on this pole (secondary pole or slew), tau "
-                f"describes the late tail only"
-            )
-        if seg.tail_trim_decades > 0.5:
-            print(
-                f"[INFO]   WARNING: fit rejected the bottom "
-                f"{seg.tail_trim_decades:.2g} decades above the noise floor; "
-                f"the late response departs from this pole (thermal tail or "
-                f"dielectric absorption)"
-            )
-
-        plot.settle_ref = seg.y_final
-        self.viewer.control_bar_manager.set_settle_checked(True)
-        self.viewer.view_manager.secondary_axis_manager.set_residual_mode(True)
-        self._set_settle_axis_label(True)
-        self._update_ref_annotation()
-
-        span = seg.span_x1 - seg.baseline_x0
-        pad = span * 0.02
-        self.viewer.set_view(
-            (seg.baseline_x0 - pad, seg.span_x1 + pad),
-            self.viewer.view_manager.get_current_bounds().ylim,
-            record=False,
-        )
-        self._refit_y_keep_x()
-
-        if self._settle_artists is None:
-            self._settle_artists = SettleAnalysisArtists(self.viewer.ax)
-        self._settle_artists.draw(seg)
-        self.viewer.canvas.draw_idle()
-
-    def _refit_y_keep_x(self, pad_ratio: float = 0.05) -> None:
-        """Refit the y range to in-view display data without moving the x window."""
-        xlim = self.viewer.view_manager.get_current_bounds().xlim
-        ymin = np.inf
-        ymax = -np.inf
-
-        for plot in self.viewer.plot_manager.get_visible_plots():
-            if len(plot.points) == 0:
-                continue
-            points = plot.display_points()
-            x = points[:, 0] + plot.offset_x
-            mask = (x >= xlim[0]) & (x <= xlim[1])
-            if not mask.any():
-                continue
-            y = points[mask, 1] + plot.offset_y
-            ymin = min(ymin, float(y.min()))
-            ymax = max(ymax, float(y.max()))
-
-        if not np.isfinite(ymin):
-            return
-
-        span = ymax - ymin
-        if span == 0.0:
-            span = 1.0
-        pad = span * pad_ratio
-        self.viewer.set_view(xlim, (ymin - pad, ymax + pad))
 
     def on_add_files(self):
         """Open QFileDialog for supported file types and append resulting plots."""
@@ -455,7 +261,7 @@ class PlotEventHandlers:
             if self.viewer.plot_manager.is_group_selected():
                 for plot_index in plot_indices:
                     array_index = (
-                        self.viewer.array_field_integration._get_array_index_for_plot(
+                        self.viewer.array_field_integration.array_index_for_plot(
                             plot_index
                         )
                     )
@@ -486,7 +292,7 @@ class PlotEventHandlers:
 
             for plot_index in plot_indices:
                 array_index = (
-                    self.viewer.array_field_integration._get_array_index_for_plot(
+                    self.viewer.array_field_integration.array_index_for_plot(
                         plot_index
                     )
                 )

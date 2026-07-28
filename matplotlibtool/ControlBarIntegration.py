@@ -57,9 +57,6 @@ class ControlBarIntegration:
             "paletteChanged": self.viewer.event_handlers.on_palette_changed,
             "colorFieldChanged": self.viewer.event_handlers.on_color_field_changed,
             "darkModeToggled": self.viewer.event_handlers.on_dark_mode_toggled,
-            # Analysis controls
-            "settleToggled": self.viewer.event_handlers.on_settle_toggled,
-            "analyzeRequested": self.viewer.event_handlers.on_analyze_requested,
             # Grid controls
             "gridSpacingChanged": self.viewer.event_handlers.on_grid_changed,
             "axesGridColorPickRequested": self.viewer.event_handlers.on_pick_axes_grid_color,
@@ -159,7 +156,7 @@ class ControlBarIntegration:
             plot_index = self.viewer.plot_manager.selected_plot_index
 
         # Get the array index for this plot to find available fields
-        array_index = self.viewer.array_field_integration._get_array_index_for_plot(
+        array_index = self.viewer.array_field_integration.array_index_for_plot(
             plot_index
         )
 

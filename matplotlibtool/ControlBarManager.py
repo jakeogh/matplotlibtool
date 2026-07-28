@@ -49,10 +49,6 @@ class ControlBarSignals(QObject):
     axesGridColorPickRequested = pyqtSignal()
     adcGridColorPickRequested = pyqtSignal()
 
-    # Analysis controls
-    settleToggled = pyqtSignal(bool)
-    analyzeRequested = pyqtSignal()
-
     # View controls
     fitViewRequested = pyqtSignal()
     mouseModeChanged = pyqtSignal(str)
@@ -318,6 +314,9 @@ class ControlBarManager:
         layout.addWidget(plot_combo)
         self.widgets["plot_combo"] = plot_combo
 
+        layout.addWidget(self._field_button)
+        self.widgets["field_panel_btn"] = self._field_button
+
         visible_chk = QCheckBox("Visible")
         visible_chk.setChecked(True)
         visible_chk.toggled.connect(self.signals.visibilityToggled.emit)
@@ -526,28 +525,6 @@ class ControlBarManager:
             layout.addWidget(mode_btn)
             self.widgets[f"mode_{mode_name.lower()}_btn"] = mode_btn
         self.widgets["mode_zoom_btn"].setChecked(True)
-
-        settle_chk = QCheckBox("Settle")
-        settle_chk.setToolTip(
-            "Y → log10|y − ref| per visible plot; "
-            "ref = mean of the last 10% of in-view samples at toggle time. "
-            "A single pole plots as a straight line; slope gives τ directly."
-        )
-        settle_chk.toggled.connect(self.signals.settleToggled.emit)
-        layout.addWidget(settle_chk)
-        self.widgets["settle_chk"] = settle_chk
-
-        analyze_btn = QPushButton("Analyze")
-        analyze_btn.setMaximumWidth(70)
-        analyze_btn.setToolTip(
-            "Segment the largest step in the current x window of the selected "
-            "plot: edge, linear (single-pole) region, settled point. Fits the "
-            "log-residual slope, prints a report, and enables Settle display "
-            "with the converged reference."
-        )
-        analyze_btn.clicked.connect(self.signals.analyzeRequested.emit)
-        layout.addWidget(analyze_btn)
-        self.widgets["analyze_btn"] = analyze_btn
 
         back_btn = QPushButton("◀")
         back_btn.setMaximumWidth(30)
@@ -884,13 +861,6 @@ class ControlBarManager:
             chk.setChecked(checked)
             chk.blockSignals(False)
 
-    def set_settle_checked(self, checked: bool):
-        """Set settle checkbox state without emitting the toggle signal."""
-        chk = self.widgets["settle_chk"]
-        chk.blockSignals(True)
-        chk.setChecked(checked)
-        chk.blockSignals(False)
-
     def set_plots(
         self,
         labels: list[str],
@@ -1174,16 +1144,10 @@ class ControlBarManager:
                 signal = getattr(self.signals, signal_name)
                 signal.connect(handler)
 
-    def create_five_row_controls(self, field_visibility_widget=None) -> QWidget:
-        """
-        Create the complete five-row control layout including array field visibility.
+    def create_controls(self, field_button) -> QWidget:
+        """Create the four-row control layout with the Fields popup in row 1."""
+        self._field_button = field_button
 
-        Args:
-            field_visibility_widget: Optional pre-created field visibility widget
-
-        Returns:
-            Widget containing all control rows
-        """
         controls_widget = QWidget(self.parent)
         main_layout = QVBoxLayout(controls_widget)
         main_layout.setContentsMargins(
@@ -1199,177 +1163,18 @@ class ControlBarManager:
         row3 = self._create_row3()
         row4 = self._create_secondary_axis_row()
 
-        if field_visibility_widget:
-            row5 = field_visibility_widget
-        else:
-            row5 = QWidget()
-            row5_layout = QHBoxLayout(row5)
-            row5_layout.setContentsMargins(
-                8,
-                4,
-                8,
-                4,
-            )
-            row5_layout.addWidget(QLabel("Show Fields: (no arrays loaded)"))
-            row5_layout.addStretch()
-
         main_layout.addWidget(row1)
         main_layout.addWidget(row2)
         main_layout.addWidget(row3)
         main_layout.addWidget(row4)
-        main_layout.addWidget(row5)
 
         self.layouts["main"] = main_layout
         self.layouts["row1"] = row1.layout()
         self.layouts["row2"] = row2.layout()
         self.layouts["row3"] = row3.layout()
         self.layouts["row4"] = row4.layout()
-        if hasattr(row5, "layout") and row5.layout():
-            self.layouts["row5"] = row5.layout()
-
-        self.widgets["field_visibility_row"] = row5
 
         return controls_widget
-
-    def create_six_row_controls(
-        self,
-        field_visibility_widget=None,
-        field_scale_widget=None,
-    ) -> QWidget:
-        """
-        Create the complete six-row control layout including array field visibility and scale factors.
-
-        Args:
-            field_visibility_widget: Optional pre-created field visibility widget
-            field_scale_widget: Optional pre-created field scale widget
-
-        Returns:
-            Widget containing all control rows
-        """
-        controls_widget = QWidget(self.parent)
-        main_layout = QVBoxLayout(controls_widget)
-        main_layout.setContentsMargins(
-            0,
-            0,
-            0,
-            0,
-        )
-        main_layout.setSpacing(0)
-
-        row1 = self._create_row1()
-        row2 = self._create_row2()
-        row3 = self._create_row3()
-        row4 = self._create_secondary_axis_row()
-
-        if field_visibility_widget:
-            row5 = field_visibility_widget
-        else:
-            row5 = QWidget()
-            row5_layout = QHBoxLayout(row5)
-            row5_layout.setContentsMargins(
-                8,
-                4,
-                8,
-                4,
-            )
-            row5_layout.addWidget(QLabel("Show Fields: (no arrays loaded)"))
-            row5_layout.addStretch()
-
-        if field_scale_widget:
-            row6 = field_scale_widget
-        else:
-            row6 = QWidget()
-            row6_layout = QHBoxLayout(row6)
-            row6_layout.setContentsMargins(
-                8,
-                4,
-                8,
-                4,
-            )
-            row6_layout.addWidget(QLabel("Scale Factors: (no arrays loaded)"))
-            row6_layout.addStretch()
-
-        main_layout.addWidget(row1)
-        main_layout.addWidget(row2)
-        main_layout.addWidget(row3)
-        main_layout.addWidget(row4)
-        main_layout.addWidget(row5)
-        main_layout.addWidget(row6)
-
-        self.layouts["main"] = main_layout
-        self.layouts["row1"] = row1.layout()
-        self.layouts["row2"] = row2.layout()
-        self.layouts["row3"] = row3.layout()
-        self.layouts["row4"] = row4.layout()
-        if hasattr(row5, "layout") and row5.layout():
-            self.layouts["row5"] = row5.layout()
-        if hasattr(row6, "layout") and row6.layout():
-            self.layouts["row6"] = row6.layout()
-
-        self.widgets["field_visibility_row"] = row5
-        self.widgets["field_scale_row"] = row6
-
-        return controls_widget
-
-    def update_field_visibility_row(self, field_visibility_widget) -> None:
-        """
-        Update the field visibility row widget after initial creation.
-
-        Args:
-            field_visibility_widget: The field visibility widget to use
-        """
-        if "field_visibility_row" in self.widgets:
-            old_widget = self.widgets["field_visibility_row"]
-
-            main_layout = self.layouts.get("main")
-            if main_layout:
-                for i in range(main_layout.count()):
-                    if main_layout.itemAt(i).widget() == old_widget:
-                        main_layout.takeAt(i)
-                        old_widget.deleteLater()
-
-                        main_layout.insertWidget(i, field_visibility_widget)
-
-                        self.widgets["field_visibility_row"] = field_visibility_widget
-
-                        if (
-                            hasattr(field_visibility_widget, "layout")
-                            and field_visibility_widget.layout()
-                        ):
-                            self.layouts["row5"] = field_visibility_widget.layout()
-
-                        print("[INFO] Field visibility row widget updated")
-                        break
-
-    def update_field_scale_row(self, field_scale_widget) -> None:
-        """
-        Update the field scale row widget after initial creation.
-
-        Args:
-            field_scale_widget: The field scale widget to use
-        """
-        if "field_scale_row" in self.widgets:
-            old_widget = self.widgets["field_scale_row"]
-
-            main_layout = self.layouts.get("main")
-            if main_layout:
-                for i in range(main_layout.count()):
-                    if main_layout.itemAt(i).widget() == old_widget:
-                        main_layout.takeAt(i)
-                        old_widget.deleteLater()
-
-                        main_layout.insertWidget(i, field_scale_widget)
-
-                        self.widgets["field_scale_row"] = field_scale_widget
-
-                        if (
-                            hasattr(field_scale_widget, "layout")
-                            and field_scale_widget.layout()
-                        ):
-                            self.layouts["row6"] = field_scale_widget.layout()
-
-                        print("[INFO] Field scale row widget updated")
-                        break
 
     def set_point_size_mixed(self):
         """Set point size spinbox to show mixed state."""

@@ -116,7 +116,6 @@ class Plot2D(QMainWindow):
         self.plot_manager = PlotManager(transform_engine=self.transform_engine)
 
         self.array_field_integration = ArrayFieldIntegration(self)
-        self.array_field_integration.initialize()
 
         if figsize is not None:
             self.fig = Figure(figsize=figsize, facecolor="black")
@@ -373,16 +372,9 @@ class Plot2D(QMainWindow):
 
     def fit_view(self, pad_ratio: float = 0.05) -> ViewBounds:
         """Fit view to all visible data; unit square when there is none."""
-        all_points = []
-        for plot in self.plot_manager.get_visible_plots():
-            points = plot.display_points()
-            if plot.offset_x != 0.0 or plot.offset_y != 0.0:
-                all_points.append(
-                    points
-                    + np.array([plot.offset_x, plot.offset_y], dtype=np.float32)
-                )
-            else:
-                all_points.append(points)
+        all_points = [
+            plot.display_points() for plot in self.plot_manager.get_visible_plots()
+        ]
 
         bounds = ViewManager.compute_fit_bounds(all_points, pad_ratio)
         if bounds is None:
@@ -544,10 +536,7 @@ class Plot2D(QMainWindow):
 
         self.control_bar_integration.refresh_plot_selector()
         self.control_bar_integration.sync_controls_to_selection()
-
-        self.array_field_integration.visibility_row.set_current_array(array_index)
-        if self.array_field_integration.scale_row:
-            self.array_field_integration.scale_row.set_current_array(array_index)
+        self.array_field_integration.panel.update_button_label()
 
         return processed.transform_params
 
@@ -656,7 +645,6 @@ class Plot2D(QMainWindow):
 
     def _on_plot_selection_changed(self, plot_index: int):
         self.control_bar_integration.sync_controls_to_selection()
-        self.array_field_integration.on_array_selection_changed(plot_index)
 
     def _on_plot_properties_changed(self, plot_index: int):
         self._update_plot()
@@ -762,14 +750,8 @@ class Plot2D(QMainWindow):
 
         self.control_bar_manager = ControlBarManager(self, COLOR_PALETTES)
 
-        field_visibility_widget = (
-            self.array_field_integration.create_visibility_widget()
-        )
-        field_scale_widget = self.array_field_integration.create_scale_widget()
-
-        controls_widget = self.control_bar_manager.create_six_row_controls(
-            field_visibility_widget=field_visibility_widget,
-            field_scale_widget=field_scale_widget,
+        controls_widget = self.control_bar_manager.create_controls(
+            field_button=self.array_field_integration.create_panel_button()
         )
 
         main_layout.addWidget(controls_widget)
