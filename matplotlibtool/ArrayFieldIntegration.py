@@ -121,6 +121,7 @@ class ArrayFieldIntegration:
         self.viewer._update_plot()
         self.viewer.canvas.draw_idle()
         self.viewer.control_bar_integration.refresh_plot_selector()
+        self.panel.update_button_label()
 
     def set_multiplier(
         self,

@@ -539,7 +539,6 @@ class Plot2D(QMainWindow):
 
         self.control_bar_integration.refresh_plot_selector()
         self.control_bar_integration.sync_controls_to_selection()
-        self.array_field_integration.panel.update_button_label()
 
         return processed.transform_params
 

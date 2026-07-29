@@ -153,7 +153,6 @@ class ArrayFieldPanel:
 
     def _on_toggled(self, array_index: int, field_name: str, checked: bool) -> None:
         self.integration.set_field_enabled(array_index, field_name, checked)
-        self.update_button_label()
 
     def _on_multiplier_edited(
         self,
