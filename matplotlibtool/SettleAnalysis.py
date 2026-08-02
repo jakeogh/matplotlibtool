@@ -41,6 +41,10 @@ class SettleSegments:
     linear_start_x: float
     linear_end_x: float
     n_fit_points: int
+    rise_10_90: float           # measured 10-90% transition, x-units
+    rise_20_80: float           # measured 20-80% transition, x-units
+    rise_x10: float             # x of the 10% crossing
+    rise_x90: float             # x of the 90% crossing
     slope: float                # decades per x-unit (negative for a decay)
     slope_first_half: float
     slope_second_half: float
@@ -61,6 +65,42 @@ def _robust_sigma(values: np.ndarray) -> float:
     if mad > 0.0:
         return 1.4826 * mad
     return float(values.std())
+
+
+def _crossing_x(
+    x: np.ndarray,
+    frac: np.ndarray,
+    level: float,
+    i_ref: int,
+    forward: bool,
+) -> float:
+    """
+    Interpolated x where frac crosses level, searched outward from i_ref.
+
+    Anchoring the search at the 50% index and walking outward makes the result
+    immune to noise excursions elsewhere in the window.
+    """
+    if forward:
+        hits = np.flatnonzero(frac[i_ref:] >= level)
+        if hits.size == 0:
+            raise ValueError(f"settle analysis: transition never reaches {level:.0%}")
+        i = int(hits[0]) + i_ref
+        lo = i - 1
+    else:
+        hits = np.flatnonzero(frac[: i_ref + 1] <= level)
+        if hits.size == 0:
+            raise ValueError(f"settle analysis: transition never starts below {level:.0%}")
+        lo = int(hits[-1])
+        i = lo + 1
+
+    if lo < 0 or i >= len(frac):
+        raise ValueError(
+            f"settle analysis: the {level:.0%} crossing is outside the captured edge"
+        )
+    span = frac[i] - frac[lo]
+    if span == 0.0:
+        return float(x[i])
+    return float(x[lo] + (x[i] - x[lo]) * (level - frac[lo]) / span)
 
 
 def analyze_settle(
@@ -205,6 +245,18 @@ def analyze_settle(
             f"{slope:.4g}); no exponential settle found"
         )
 
+    # rise time across the transition itself, from the pre-step baseline to the
+    # settled point, normalized so the sign of the step drops out
+    seg_lo = int(np.searchsorted(x, x[edge_start]))
+    seg_hi = peak + 1 + settled_i
+    seg_x = x[seg_lo : seg_hi + 1]
+    frac = (y[seg_lo : seg_hi + 1] - y_pre) / step
+    i_mid = int(np.flatnonzero(frac >= 0.5)[0])
+    rise_x10 = _crossing_x(seg_x, frac, 0.10, i_mid, forward=False)
+    rise_x90 = _crossing_x(seg_x, frac, 0.90, i_mid, forward=True)
+    rise_x20 = _crossing_x(seg_x, frac, 0.20, i_mid, forward=False)
+    rise_x80 = _crossing_x(seg_x, frac, 0.80, i_mid, forward=True)
+
     half = len(xs) // 2
     if half >= 3:
         slope_a = float(np.polyfit(xs[:half], log_r[:half], 1)[0])
@@ -224,6 +276,10 @@ def analyze_settle(
         linear_start_x=fit_x0 + float(xs[0]),
         linear_end_x=fit_x0 + float(xs[-1]),
         n_fit_points=int(len(xs)),
+        rise_10_90=rise_x90 - rise_x10,
+        rise_20_80=rise_x80 - rise_x20,
+        rise_x10=rise_x10,
+        rise_x90=rise_x90,
         slope=float(slope),
         slope_first_half=slope_a,
         slope_second_half=slope_b,
@@ -256,6 +312,8 @@ class SettleAnalysisArtists:
         ax = self.ax
 
         for xpos, color in (
+            (seg.rise_x10, "#ffd700"),
+            (seg.rise_x90, "#ffd700"),
             (seg.edge_start_x, "#ff8c00"),
             (seg.linear_start_x, "#00bfff"),
             (seg.linear_end_x, "#00bfff"),
@@ -286,6 +344,7 @@ class SettleAnalysisArtists:
                 0.02,
                 0.02,
                 (
+                    f"rise 10-90% = {seg.rise_10_90:.4g} x-units\n"
                     f"tau = {seg.tau:.4g} x-units\n"
                     f"slope = {seg.slope:.4g} dec/x (rms {seg.fit_rms:.3g})\n"
                     f"settled({SETTLED_M:.0f}\u03c3) after {seg.settling_time:.4g} x-units"

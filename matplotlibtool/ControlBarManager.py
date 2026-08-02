@@ -49,6 +49,11 @@ class ControlBarSignals(QObject):
     axesGridColorPickRequested = pyqtSignal()
     adcGridColorPickRequested = pyqtSignal()
 
+    # Analysis controls
+    settleToggled = pyqtSignal(bool)
+    analyzeRequested = pyqtSignal()
+    saveDataRequested = pyqtSignal()
+
     # View controls
     fitViewRequested = pyqtSignal()
     mouseModeChanged = pyqtSignal(str)
@@ -506,6 +511,17 @@ class ControlBarManager:
         layout.addWidget(save_fig_btn)
         self.widgets["save_fig_btn"] = save_fig_btn
 
+        save_data_btn = QPushButton("Save Data")
+        save_data_btn.setMaximumWidth(80)
+        save_data_btn.setToolTip(
+            "Write the visible plots' samples inside the current x window to a "
+            "timestamped CSV in /delme, with acquisition and axis metadata in "
+            "the header."
+        )
+        save_data_btn.clicked.connect(self.signals.saveDataRequested.emit)
+        layout.addWidget(save_data_btn)
+        self.widgets["save_data_btn"] = save_data_btn
+
         layout.addWidget(QLabel("Mode"))
         for mode_name, label, tip in (
             ("ZOOM", "Zoom", "Left-drag draws a zoom box"),
@@ -525,6 +541,27 @@ class ControlBarManager:
             layout.addWidget(mode_btn)
             self.widgets[f"mode_{mode_name.lower()}_btn"] = mode_btn
         self.widgets["mode_zoom_btn"].setChecked(True)
+
+        settle_chk = QCheckBox("Settle")
+        settle_chk.setToolTip(
+            "Y becomes log10|y - ref| per visible plot; ref = mean of the last "
+            "10% of in-view samples at toggle time. A single pole plots as a "
+            "straight line whose slope gives tau."
+        )
+        settle_chk.toggled.connect(self.signals.settleToggled.emit)
+        layout.addWidget(settle_chk)
+        self.widgets["settle_chk"] = settle_chk
+
+        analyze_btn = QPushButton("Analyze")
+        analyze_btn.setMaximumWidth(70)
+        analyze_btn.setToolTip(
+            "Segment the largest step in the current x window of the selected "
+            "plot: edge, rise time, linear region, settled point. Fits the "
+            "log-residual slope and enables Settle with the converged reference."
+        )
+        analyze_btn.clicked.connect(self.signals.analyzeRequested.emit)
+        layout.addWidget(analyze_btn)
+        self.widgets["analyze_btn"] = analyze_btn
 
         back_btn = QPushButton("◀")
         back_btn.setMaximumWidth(30)
@@ -853,6 +890,13 @@ class ControlBarManager:
 
         except ValueError as e:
             print(f"[ERROR] Invalid secondary axis configuration: {e}")
+
+    def set_settle_checked(self, checked: bool):
+        """Set settle checkbox state without emitting the toggle signal."""
+        chk = self.widgets["settle_chk"]
+        chk.blockSignals(True)
+        chk.setChecked(checked)
+        chk.blockSignals(False)
 
     def set_dark_mode_checked(self, checked: bool):
         """Set dark mode checkbox state."""
