@@ -154,6 +154,7 @@ class Plot2D(QMainWindow):
 
         # Performance
         self.max_display_points = 100_000
+        self.sample_rate_hz: float | None = None
         self.max_line_segments = 10_000
         self.cull_margin = 0.25
 

@@ -10,7 +10,9 @@ from pathlib import Path
 import numpy as np
 
 from .MouseMode import MouseMode
+from .SettleAnalysis import RISE_TAU_RATIO
 from .SettleAnalysis import SettleAnalysisArtists
+from .SettleAnalysis import x_formatter
 from .SettleAnalysis import analyze_settle
 
 
@@ -26,6 +28,7 @@ class PlotEventHandlers:
 
         self._settle_artists = None
         self._ref_annotation = None
+        self._last_segments = None
 
     def _should_throttle_scaling(self) -> bool:
         now = time.time() * 1000
@@ -192,6 +195,18 @@ class PlotEventHandlers:
 
             print(f"[INFO] Data auto-saved to: {filepath} ({rows} samples)")
 
+    def on_sample_rate_changed(self, rate_hz: float) -> None:
+        """Set the x-axis sample rate used to report analysis results in time."""
+        self.viewer.sample_rate_hz = rate_hz if rate_hz > 0.0 else None
+        if self.viewer.sample_rate_hz is None:
+            print("[INFO] Sample rate cleared; analysis reports x-units only")
+        else:
+            print(f"[INFO] Sample rate: {self.viewer.sample_rate_hz:,.0f} Hz")
+
+        if self._settle_artists is not None and self._last_segments is not None:
+            self._settle_artists.draw(self._last_segments, self.viewer.sample_rate_hz)
+            self.viewer.canvas.draw_idle()
+
     def on_settle_toggled(self, enabled: bool) -> None:
         """Toggle log10|y - ref| display; ref from the in-view tail per plot."""
         self.viewer.view_manager.secondary_axis_manager.set_residual_mode(enabled)
@@ -289,8 +304,8 @@ class PlotEventHandlers:
             xlim,
         )
 
-        decade = -1.0 / seg.slope
-        implied_rise = np.log(9.0) * seg.tau
+        fmt = x_formatter(self.viewer.sample_rate_hz)
+        tau_from_rise = seg.rise_10_90 / RISE_TAU_RATIO
         print(f"[INFO] Settle analysis: {name}")
         print(
             f"[INFO]   step:     {seg.step_height:+.6g} "
@@ -302,28 +317,40 @@ class PlotEventHandlers:
         )
         print(f"[INFO]   edge:     x {seg.edge_start_x:.6g} .. {seg.edge_end_x:.6g}")
         print(
-            f"[INFO]   rise:     10-90% {seg.rise_10_90:.4g} x-units "
-            f"(20-80% {seg.rise_20_80:.4g}), x {seg.rise_x10:.6g} .. "
+            f"[INFO]   rise:     10-90% {fmt(seg.rise_10_90)}, "
+            f"20-80% {fmt(seg.rise_20_80)}, x {seg.rise_x10:.6g} .. "
             f"{seg.rise_x90:.6g}"
         )
+        print(f"[INFO]   tau(rise): {fmt(tau_from_rise)} from the 10-90% transition")
         print(
             f"[INFO]   linear:   x {seg.linear_start_x:.6g} .. "
             f"{seg.linear_end_x:.6g} ({seg.n_fit_points} pts), slope "
             f"{seg.slope:.4g} dec/x, rms {seg.fit_rms:.3g} dec"
         )
         print(
-            f"[INFO]   tau:      {seg.tau:.4g} x-units "
-            f"(1 decade per {decade:.4g} x-units)"
+            f"[INFO]   tau(fit): {fmt(seg.tau)} from the log-residual slope "
+            f"(1 decade per {fmt(-1.0 / seg.slope)})"
         )
         print(
             f"[INFO]   settled:  x {seg.settled_x:.6g}, settling time "
-            f"{seg.settling_time:.4g} x-units to the 4-sigma band"
+            f"{fmt(seg.settling_time)} to the 4-sigma band"
         )
-        if seg.rise_10_90 > 1.3 * implied_rise:
+
+        # the two tau estimates agree only for a single pole; which way they
+        # disagree says what the trace is actually doing
+        ratio = seg.tau / tau_from_rise
+        if ratio > 1.3:
             print(
-                f"[INFO]   WARNING: measured rise {seg.rise_10_90:.4g} exceeds the "
-                f"{implied_rise:.4g} implied by tau; the edge is slew limited, "
-                f"not bandwidth limited"
+                f"[INFO]   WARNING: the fitted tau is {ratio:.3g}x the one implied "
+                f"by the rise time; the fit is following a slow tail, not the "
+                f"edge. The dominant pole is tau(rise) = {fmt(tau_from_rise)}; "
+                f"tau(fit) = {fmt(seg.tau)} describes a separate slow component"
+            )
+        elif ratio < 0.77:
+            print(
+                f"[INFO]   WARNING: the measured rise is {1.0 / ratio:.3g}x slower "
+                f"than the fitted tau implies; the edge is slew limited, not "
+                f"bandwidth limited"
             )
         halves = (seg.slope_first_half, seg.slope_second_half)
         if abs(halves[0] - halves[1]) > 0.15 * abs(seg.slope):
@@ -364,7 +391,8 @@ class PlotEventHandlers:
 
         if self._settle_artists is None:
             self._settle_artists = SettleAnalysisArtists(self.viewer.ax)
-        self._settle_artists.draw(seg)
+        self._last_segments = seg
+        self._settle_artists.draw(seg, self.viewer.sample_rate_hz)
         self.viewer.canvas.draw_idle()
 
     def on_grid_changed(self, grid_text: str):

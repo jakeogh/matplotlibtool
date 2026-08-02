@@ -58,6 +58,7 @@ class ControlBarIntegration:
             "colorFieldChanged": self.viewer.event_handlers.on_color_field_changed,
             "darkModeToggled": self.viewer.event_handlers.on_dark_mode_toggled,
             # Analysis controls
+            "sampleRateChanged": self.viewer.event_handlers.on_sample_rate_changed,
             "settleToggled": self.viewer.event_handlers.on_settle_toggled,
             "analyzeRequested": self.viewer.event_handlers.on_analyze_requested,
             "saveDataRequested": self.viewer.event_handlers.on_save_data,

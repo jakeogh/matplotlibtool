@@ -16,6 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
+from matplotlib.ticker import EngFormatter
 
 EDGE_K = 8.0        # edge threshold: median + k * robust sigma of |dy|
 EVENT_GAP = 8       # quiet samples required to separate two events
@@ -24,6 +25,7 @@ FLOOR_C = 8.0       # linear-fit floor: c * baseline noise sigma
 TOP_F = 0.9         # linear-fit ceiling: fraction of step height
 TRIM_K = 3.0        # end-trim points deviating > k * fit rms
 MIN_FIT_POINTS = 6
+RISE_TAU_RATIO = float(np.log(9.0))   # t(10-90%) / tau for a single pole
 MIN_BASELINE = 8
 MIN_SETTLED = 8
 
@@ -57,6 +59,14 @@ class SettleSegments:
     settled_x: float            # first x of the persistent SETTLED_M-sigma band
     settling_time: float        # settled_x - edge_start_x
     span_x1: float              # end of the analyzed post-step span
+
+
+def x_formatter(sample_rate_hz: float | None):
+    """Render an x-unit interval, adding seconds when a sample rate is known."""
+    if not sample_rate_hz:
+        return lambda value: f"{value:.4g} x-units"
+    eng = EngFormatter(unit="s", places=3)
+    return lambda value: f"{value:.4g} x-units ({eng(value / sample_rate_hz)})"
 
 
 def _robust_sigma(values: np.ndarray) -> float:
@@ -307,9 +317,10 @@ class SettleAnalysisArtists:
             artist.remove()
         self._artists = []
 
-    def draw(self, seg: SettleSegments) -> None:
+    def draw(self, seg: SettleSegments, sample_rate_hz: float | None = None) -> None:
         self.clear()
         ax = self.ax
+        fmt = x_formatter(sample_rate_hz)
 
         for xpos, color in (
             (seg.rise_x10, "#ffd700"),
@@ -344,10 +355,11 @@ class SettleAnalysisArtists:
                 0.02,
                 0.02,
                 (
-                    f"rise 10-90% = {seg.rise_10_90:.4g} x-units\n"
-                    f"tau = {seg.tau:.4g} x-units\n"
-                    f"slope = {seg.slope:.4g} dec/x (rms {seg.fit_rms:.3g})\n"
-                    f"settled({SETTLED_M:.0f}\u03c3) after {seg.settling_time:.4g} x-units"
+                    f"rise 10-90% = {fmt(seg.rise_10_90)}"
+                    f"  (tau {fmt(seg.rise_10_90 / RISE_TAU_RATIO)})\n"
+                    f"tau fitted = {fmt(seg.tau)}"
+                    f"  (rms {seg.fit_rms:.3g} dec)\n"
+                    f"settled({SETTLED_M:.0f}\u03c3) after {fmt(seg.settling_time)}"
                 ),
                 transform=ax.transAxes,
                 color="white",

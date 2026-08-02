@@ -9,6 +9,7 @@ from PyQt6.QtCore import QObject
 from PyQt6.QtCore import Qt
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import QCheckBox
+from PyQt6.QtGui import QIntValidator
 from PyQt6.QtWidgets import QComboBox
 from PyQt6.QtWidgets import QDoubleSpinBox
 from PyQt6.QtWidgets import QHBoxLayout
@@ -50,6 +51,7 @@ class ControlBarSignals(QObject):
     adcGridColorPickRequested = pyqtSignal()
 
     # Analysis controls
+    sampleRateChanged = pyqtSignal(float)
     settleToggled = pyqtSignal(bool)
     analyzeRequested = pyqtSignal()
     saveDataRequested = pyqtSignal()
@@ -542,6 +544,31 @@ class ControlBarManager:
             self.widgets[f"mode_{mode_name.lower()}_btn"] = mode_btn
         self.widgets["mode_zoom_btn"].setChecked(True)
 
+        layout.addWidget(QLabel("Rate:"))
+        rate_edit = QLineEdit()
+        rate_edit.setMaximumWidth(70)
+        rate_edit.setPlaceholderText("rate")
+        rate_edit.setValidator(QIntValidator(0, 1_000_000_000, rate_edit))
+        rate_edit.setToolTip(
+            "Sample rate of the x axis. When set, analysis reports rise time, "
+            "tau and settling time in seconds as well as x-units. Leave blank "
+            "to report x-units only."
+        )
+        layout.addWidget(rate_edit)
+        self.widgets["rate_edit"] = rate_edit
+
+        rate_unit_combo = QComboBox()
+        rate_unit_combo.addItems(["Hz", "kHz", "MHz", "GHz"])
+        rate_unit_combo.setCurrentText("MHz")
+        rate_unit_combo.setMaximumWidth(65)
+        layout.addWidget(rate_unit_combo)
+        self.widgets["rate_unit_combo"] = rate_unit_combo
+
+        rate_edit.editingFinished.connect(self._emit_sample_rate)
+        rate_unit_combo.currentTextChanged.connect(
+            lambda _text: self._emit_sample_rate()
+        )
+
         settle_chk = QCheckBox("Settle")
         settle_chk.setToolTip(
             "Y becomes log10|y - ref| per visible plot; ref = mean of the last "
@@ -890,6 +917,16 @@ class ControlBarManager:
 
         except ValueError as e:
             print(f"[ERROR] Invalid secondary axis configuration: {e}")
+
+    def _emit_sample_rate(self) -> None:
+        text = self.widgets["rate_edit"].text().strip()
+        if not text:
+            self.signals.sampleRateChanged.emit(0.0)
+            return
+        multiplier = {"Hz": 1.0, "kHz": 1e3, "MHz": 1e6, "GHz": 1e9}[
+            self.widgets["rate_unit_combo"].currentText()
+        ]
+        self.signals.sampleRateChanged.emit(float(text) * multiplier)
 
     def set_settle_checked(self, checked: bool):
         """Set settle checkbox state without emitting the toggle signal."""
