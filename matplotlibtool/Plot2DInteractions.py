@@ -178,7 +178,7 @@ class Plot2DInteractions:
         )
 
         self.viewer.keyboard_manager.clear_input_state()
-        self.viewer.set_view(new_xlim, new_ylim)
+        self.viewer.set_view(new_xlim, new_ylim, coalesce=True)
 
     # ---------- panning ----------
 

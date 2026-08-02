@@ -228,7 +228,7 @@ class PlotEventHandlers:
             print("[INFO] Settle mode disabled")
 
         self._update_ref_annotation()
-        self._refit_y_keep_x()
+        self.viewer.fit_y_to_view()
 
     def _set_settle_axis_label(self, enabled: bool) -> None:
         color = "white" if self.viewer.dark_mode else "black"
@@ -269,32 +269,6 @@ class PlotEventHandlers:
             verticalalignment="top",
             zorder=1000,
         )
-
-    def _refit_y_keep_x(self, pad_ratio: float = 0.05) -> None:
-        """Refit the y range to in-view display data without moving the x window."""
-        xlim = self.viewer.view_manager.get_current_bounds().xlim
-        ymin = np.inf
-        ymax = -np.inf
-
-        for plot in self.viewer.plot_manager.get_visible_plots():
-            if len(plot.points) == 0:
-                continue
-            points = plot.display_points()
-            mask = (points[:, 0] >= xlim[0]) & (points[:, 0] <= xlim[1])
-            if not mask.any():
-                continue
-            y = points[mask, 1]
-            ymin = min(ymin, float(y.min()))
-            ymax = max(ymax, float(y.max()))
-
-        if not np.isfinite(ymin):
-            return
-
-        span = ymax - ymin
-        if span == 0.0:
-            span = 1.0
-        pad = span * pad_ratio
-        self.viewer.set_view(xlim, (ymin - pad, ymax + pad))
 
     def on_analyze_requested(self) -> None:
         """Segment and fit the largest step in view for the selected plot."""
@@ -379,14 +353,14 @@ class PlotEventHandlers:
         self._set_settle_axis_label(True)
         self._update_ref_annotation()
 
-        span = seg.span_x1 - seg.baseline_x0
-        pad = span * 0.02
-        self.viewer.set_view(
-            (seg.baseline_x0 - pad, seg.span_x1 + pad),
-            self.viewer.view_manager.get_current_bounds().ylim,
-            record=False,
-        )
-        self._refit_y_keep_x()
+        if seg.baseline_x0 < xlim[0] or seg.span_x1 > xlim[1]:
+            print(
+                f"[INFO]   note:     the analyzed event spans x "
+                f"{seg.baseline_x0:.6g} .. {seg.span_x1:.6g}, wider than the "
+                f"current view; zoom out to see the full segmentation"
+            )
+
+        self.viewer.fit_y_to_view()
 
         if self._settle_artists is None:
             self._settle_artists = SettleAnalysisArtists(self.viewer.ax)

@@ -21,6 +21,8 @@ import sys
 from pathlib import Path
 from time import time
 
+import math
+
 import numpy as np
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
@@ -244,7 +246,7 @@ class Plot2D(QMainWindow):
 
         self.set_dark_mode(self.dark_mode)
         self._update_plot()
-        self.view_history.record(ViewBounds(xlim=xlim, ylim=ylim))
+        self.view_history.record(ViewBounds(xlim=xlim, ylim=ylim), self.display_space)
 
         self._hover_shortcut = QShortcut(QKeySequence("H"), self)
         self._hover_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
@@ -306,6 +308,7 @@ class Plot2D(QMainWindow):
         xlim: tuple[float, float],
         ylim: tuple[float, float],
         record: bool = True,
+        coalesce: bool = False,
     ) -> ViewBounds:
         """
         Commit new view bounds: apply, reset keyboard scaling, re-render.
@@ -326,27 +329,77 @@ class Plot2D(QMainWindow):
         self._update_plot()
         self.canvas.draw_idle()
         if record:
-            self.view_history.record(bounds)
+            self.view_history.record(bounds, self.display_space, coalesce)
             self._sync_history_buttons()
         return bounds
+
+    @property
+    def display_space(self) -> str:
+        """Identifies what the y axis currently means, for history entries."""
+        if any(plot.settle_ref is not None for plot in self.plot_manager.plots):
+            return "settle"
+        return "linear"
+
+    def compute_y_fit(
+        self,
+        xlim: tuple[float, float],
+        pad_ratio: float = 0.05,
+    ) -> tuple[float, float] | None:
+        """Y range enclosing visible display data inside xlim, padded."""
+        ymin = math.inf
+        ymax = -math.inf
+
+        for plot in self.plot_manager.get_visible_plots():
+            if len(plot.points) == 0:
+                continue
+            points = plot.display_points()
+            mask = (points[:, 0] >= xlim[0]) & (points[:, 0] <= xlim[1])
+            if not mask.any():
+                continue
+            y = points[mask, 1]
+            ymin = min(ymin, float(y.min()))
+            ymax = max(ymax, float(y.max()))
+
+        if not math.isfinite(ymin):
+            return None
+
+        span = (ymax - ymin) or 1.0
+        pad = span * pad_ratio
+        return (ymin - pad, ymax + pad)
+
+    def fit_y_to_view(self, pad_ratio: float = 0.05, record: bool = True) -> None:
+        """Refit y to the data inside the current x window, keeping x fixed."""
+        xlim = self.view_manager.get_current_bounds().xlim
+        ylim = self.compute_y_fit(xlim, pad_ratio)
+        if ylim is None:
+            return
+        self.set_view(xlim, ylim, record=record)
 
     def record_view_history(self) -> None:
         """Commit the current view as a history entry (end of a gesture)."""
         self.view_history.record(
-            ViewBounds(xlim=self.base_xlim, ylim=self.base_ylim)
+            ViewBounds(xlim=self.base_xlim, ylim=self.base_ylim),
+            self.display_space,
         )
         self._sync_history_buttons()
 
+    def _apply_history_entry(self, entry) -> None:
+        ylim = entry.bounds.ylim
+        if entry.space != self.display_space:
+            # y limits from another display space would frame nothing; refit
+            ylim = self.compute_y_fit(entry.bounds.xlim) or ylim
+        self.set_view(entry.bounds.xlim, ylim, record=False)
+
     def view_back(self) -> None:
-        bounds = self.view_history.back()
-        if bounds is not None:
-            self.set_view(bounds.xlim, bounds.ylim, record=False)
+        entry = self.view_history.back()
+        if entry is not None:
+            self._apply_history_entry(entry)
         self._sync_history_buttons()
 
     def view_forward(self) -> None:
-        bounds = self.view_history.forward()
-        if bounds is not None:
-            self.set_view(bounds.xlim, bounds.ylim, record=False)
+        entry = self.view_history.forward()
+        if entry is not None:
+            self._apply_history_entry(entry)
         self._sync_history_buttons()
 
     def _sync_history_buttons(self) -> None:
