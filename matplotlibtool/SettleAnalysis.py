@@ -16,6 +16,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
+from matplotlib.colors import to_rgba
+from matplotlib.lines import Line2D
 from matplotlib.ticker import EngFormatter
 
 EDGE_K = 8.0        # edge threshold: median + k * robust sigma of |dy|
@@ -26,6 +28,13 @@ TOP_F = 0.9         # linear-fit ceiling: fraction of step height
 TRIM_K = 3.0        # end-trim points deviating > k * fit rms
 MIN_FIT_POINTS = 6
 RISE_TAU_RATIO = float(np.log(9.0))   # t(10-90%) / tau for a single pole
+
+EDGE_COLOR = "#ff8c00"
+RISE_COLOR = "#ffd700"
+FIT_COLOR = "#00bfff"
+SETTLED_COLOR = "#adff2f"
+FLOOR_COLOR = "#888888"
+POLE_COLOR = "#ff4040"
 MIN_BASELINE = 8
 MIN_SETTLED = 8
 
@@ -59,6 +68,12 @@ class SettleSegments:
     settled_x: float            # first x of the persistent SETTLED_M-sigma band
     settling_time: float        # settled_x - edge_start_x
     span_x1: float              # end of the analyzed post-step span
+
+
+def _text_color(ax) -> str:
+    """Readable foreground for the axes background, so light mode works too."""
+    r, g, b, _ = to_rgba(ax.get_facecolor())
+    return "white" if (0.299 * r + 0.587 * g + 0.114 * b) < 0.5 else "black"
 
 
 def x_formatter(sample_rate_hz: float | None):
@@ -321,23 +336,26 @@ class SettleAnalysisArtists:
         self.clear()
         ax = self.ax
         fmt = x_formatter(sample_rate_hz)
+        color = _text_color(ax)
 
-        for xpos, color in (
-            (seg.rise_x10, "#ffd700"),
-            (seg.rise_x90, "#ffd700"),
-            (seg.edge_start_x, "#ff8c00"),
-            (seg.linear_start_x, "#00bfff"),
-            (seg.linear_end_x, "#00bfff"),
-            (seg.settled_x, "#adff2f"),
+        for xpos, line_color in (
+            (seg.edge_start_x, EDGE_COLOR),
+            (seg.rise_x10, RISE_COLOR),
+            (seg.rise_x90, RISE_COLOR),
+            (seg.linear_start_x, FIT_COLOR),
+            (seg.linear_end_x, FIT_COLOR),
+            (seg.settled_x, SETTLED_COLOR),
         ):
             self._artists.append(
-                ax.axvline(xpos, color=color, linewidth=1.0, linestyle="--", alpha=0.8)
+                ax.axvline(
+                    xpos, color=line_color, linewidth=1.0, linestyle="--", alpha=0.8
+                )
             )
 
         self._artists.append(
             ax.axhline(
                 np.log10(seg.noise_sigma),
-                color="#888888",
+                color=FLOOR_COLOR,
                 linewidth=1.0,
                 linestyle=":",
                 alpha=0.8,
@@ -347,8 +365,32 @@ class SettleAnalysisArtists:
         fit_x = np.array([seg.linear_start_x, seg.linear_end_x])
         fit_y = seg.slope * (fit_x - seg.fit_x0) + seg.fit_intercept
         self._artists.append(
-            ax.plot(fit_x, fit_y, color="#ff4040", linewidth=1.2, alpha=0.9)[0]
+            ax.plot(fit_x, fit_y, color=POLE_COLOR, linewidth=1.2, alpha=0.9)[0]
         )
+
+        key = ax.legend(
+            handles=[
+                Line2D([], [], color=EDGE_COLOR, linestyle="--",
+                       label="edge start (last pre-step sample)"),
+                Line2D([], [], color=RISE_COLOR, linestyle="--",
+                       label="10% and 90% crossings"),
+                Line2D([], [], color=FIT_COLOR, linestyle="--",
+                       label="fitted region"),
+                Line2D([], [], color=SETTLED_COLOR, linestyle="--",
+                       label=f"settled ({SETTLED_M:.0f}\u03c3 band)"),
+                Line2D([], [], color=POLE_COLOR, label="fitted single pole"),
+                Line2D([], [], color=FLOOR_COLOR, linestyle=":",
+                       label="noise floor (1\u03c3)"),
+            ],
+            loc="upper right",
+            fontsize=8,
+            facecolor=ax.get_facecolor(),
+            edgecolor=color,
+            labelcolor=color,
+            framealpha=0.75,
+        )
+        key.set_zorder(1000)
+        self._artists.append(key)
 
         self._artists.append(
             ax.text(
@@ -362,7 +404,7 @@ class SettleAnalysisArtists:
                     f"settled({SETTLED_M:.0f}\u03c3) after {fmt(seg.settling_time)}"
                 ),
                 transform=ax.transAxes,
-                color="white",
+                color=color,
                 fontsize=9,
                 verticalalignment="bottom",
                 zorder=1000,

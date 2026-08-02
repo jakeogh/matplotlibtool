@@ -201,7 +201,7 @@ class PlotEventHandlers:
         if self.viewer.sample_rate_hz is None:
             print("[INFO] Sample rate cleared; analysis reports x-units only")
         else:
-            print(f"[INFO] Sample rate: {self.viewer.sample_rate_hz:,.0f} Hz")
+            print(f"[INFO] Sample rate: {self.viewer.sample_rate_hz:,.0f} SPS")
 
         if self._settle_artists is not None and self._last_segments is not None:
             self._settle_artists.draw(self._last_segments, self.viewer.sample_rate_hz)

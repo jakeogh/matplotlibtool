@@ -550,16 +550,16 @@ class ControlBarManager:
         rate_edit.setPlaceholderText("rate")
         rate_edit.setValidator(QIntValidator(0, 1_000_000_000, rate_edit))
         rate_edit.setToolTip(
-            "Sample rate of the x axis. When set, analysis reports rise time, "
-            "tau and settling time in seconds as well as x-units. Leave blank "
-            "to report x-units only."
+            "Sample rate of the x axis, in samples per second. When set, "
+            "analysis reports rise time, tau and settling time in seconds as "
+            "well as x-units. Leave blank to report x-units only."
         )
         layout.addWidget(rate_edit)
         self.widgets["rate_edit"] = rate_edit
 
         rate_unit_combo = QComboBox()
-        rate_unit_combo.addItems(["Hz", "kHz", "MHz", "GHz"])
-        rate_unit_combo.setCurrentText("MHz")
+        rate_unit_combo.addItems(["SPS", "kSPS", "MSPS", "GSPS"])
+        rate_unit_combo.setCurrentText("MSPS")
         rate_unit_combo.setMaximumWidth(65)
         layout.addWidget(rate_unit_combo)
         self.widgets["rate_unit_combo"] = rate_unit_combo
@@ -923,7 +923,7 @@ class ControlBarManager:
         if not text:
             self.signals.sampleRateChanged.emit(0.0)
             return
-        multiplier = {"Hz": 1.0, "kHz": 1e3, "MHz": 1e6, "GHz": 1e9}[
+        multiplier = {"SPS": 1.0, "kSPS": 1e3, "MSPS": 1e6, "GSPS": 1e9}[
             self.widgets["rate_unit_combo"].currentText()
         ]
         self.signals.sampleRateChanged.emit(float(text) * multiplier)
