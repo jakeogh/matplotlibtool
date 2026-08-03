@@ -259,6 +259,11 @@ class Plot2D(QMainWindow):
         self.timer.timeout.connect(self.event_handlers.on_timer)
         self.timer.start(16)
 
+        self.clock_timer = QTimer()
+        self.clock_timer.timeout.connect(self._update_clock)
+        self.clock_timer.start(1000)
+        self._update_clock()
+
         print("[INFO] Initialized empty 2D viewer (Matplotlib with Axis Scaling)")
         print(
             f"[INFO] Antialiasing: {'enabled' if not disable_antialiasing else 'disabled'}"
@@ -375,6 +380,9 @@ class Plot2D(QMainWindow):
         if ylim is None:
             return
         self.set_view(xlim, ylim, record=record)
+
+    def _update_clock(self) -> None:
+        self.control_bar_manager.get_widget("clock_label").setText(f"{int(time())}")
 
     def record_view_history(self) -> None:
         """Commit the current view as a history entry (end of a gesture)."""
@@ -872,6 +880,7 @@ class Plot2D(QMainWindow):
         self._shutdown_done = True
 
         self.timer.stop()
+        self.clock_timer.stop()
         super().close()
 
         if self._owns_qapp and self._app is not None:

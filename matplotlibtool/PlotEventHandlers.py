@@ -14,6 +14,7 @@ from .SettleAnalysis import RISE_TAU_RATIO
 from .SettleAnalysis import SettleAnalysisArtists
 from .SettleAnalysis import x_formatter
 from .SettleAnalysis import analyze_settle
+from .SettleAnalysis import text_color
 
 
 class PlotEventHandlers:
@@ -291,15 +292,23 @@ class PlotEventHandlers:
         if not lines:
             return
 
-        self._ref_annotation = self.viewer.ax.text(
+        ax = self.viewer.ax
+        color = text_color(ax)
+        self._ref_annotation = ax.text(
             0.02,
             0.98,
             "\n".join(lines),
-            transform=self.viewer.ax.transAxes,
-            color="white",
+            transform=ax.transAxes,
+            color=color,
             fontsize=9,
             verticalalignment="top",
             zorder=1000,
+            bbox=dict(
+                boxstyle="round,pad=0.4",
+                facecolor=ax.get_facecolor(),
+                edgecolor=color,
+                alpha=0.8,
+            ),
         )
 
     def on_analyze_toggled(self, enabled: bool) -> None:

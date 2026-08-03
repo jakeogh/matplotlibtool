@@ -624,6 +624,14 @@ class ControlBarManager:
             layout.addWidget(exit_btn)
             self.widgets["exit_btn"] = exit_btn
 
+        clock_label = QLabel("")
+        clock_label.setStyleSheet("font-family: monospace;")
+        clock_label.setToolTip(
+            "Current unix timestamp, so a screenshot carries the time it was taken."
+        )
+        layout.addWidget(clock_label)
+        self.widgets["clock_label"] = clock_label
+
         info_label = QLabel("")
         layout.addWidget(info_label)
         self.widgets["info_label"] = info_label

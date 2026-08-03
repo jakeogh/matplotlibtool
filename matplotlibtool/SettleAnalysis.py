@@ -71,7 +71,7 @@ class SettleSegments:
     span_x1: float              # end of the analyzed post-step span
 
 
-def _text_color(ax) -> str:
+def text_color(ax) -> str:
     """Readable foreground for the axes background, so light mode works too."""
     r, g, b, _ = to_rgba(ax.get_facecolor())
     return "white" if (0.299 * r + 0.587 * g + 0.114 * b) < 0.5 else "black"
@@ -349,7 +349,7 @@ class SettleAnalysisArtists:
         self.clear()
         ax = self.ax
         fmt = x_formatter(sample_rate_hz)
-        color = _text_color(ax)
+        color = text_color(ax)
 
         for xpos, line_color in (
             (seg.edge_start_x, EDGE_COLOR),
@@ -448,5 +448,11 @@ class SettleAnalysisArtists:
                 fontsize=9,
                 verticalalignment="bottom",
                 zorder=1000,
+                bbox=dict(
+                    boxstyle="round,pad=0.4",
+                    facecolor=ax.get_facecolor(),
+                    edgecolor=color,
+                    alpha=0.8,
+                ),
             )
         )
