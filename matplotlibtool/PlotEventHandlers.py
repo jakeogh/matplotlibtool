@@ -28,7 +28,7 @@ class PlotEventHandlers:
 
         self._settle_artists = None
         self._ref_annotation = None
-        self._last_segments = None
+        self._last_analysis = None   # (plot_index, SettleSegments)
 
     def _should_throttle_scaling(self) -> bool:
         now = time.time() * 1000
@@ -203,9 +203,7 @@ class PlotEventHandlers:
         else:
             print(f"[INFO] Sample rate: {self.viewer.sample_rate_hz:,.0f} SPS")
 
-        if self._settle_artists is not None and self._last_segments is not None:
-            self._settle_artists.draw(self._last_segments, self.viewer.sample_rate_hz)
-            self.viewer.canvas.draw_idle()
+        self._redraw_analysis_overlay()
 
     def on_settle_toggled(self, enabled: bool) -> None:
         """Toggle log10|y - ref| display; ref from the in-view tail per plot."""
@@ -228,6 +226,13 @@ class PlotEventHandlers:
                         f"need >= 16 to estimate a settled reference"
                     )
 
+                # reuse the converged reference so the markers stay aligned
+                # when flipping between the linear and settle views
+                if self._last_analysis is not None and self._last_analysis[0] == i:
+                    plot.settle_ref = self._last_analysis[1].y_final
+                    print(f"[INFO] Settle ref {name}: {plot.settle_ref:.6g} (analysis)")
+                    continue
+
                 idx = idx[np.argsort(plot.points[idx, 0], kind="stable")]
                 tail = idx[-max(16, idx.size // 10) :]
                 plot.settle_ref = float(lin[tail].mean())
@@ -238,12 +243,24 @@ class PlotEventHandlers:
         else:
             for plot in self.viewer.plot_manager.plots:
                 plot.settle_ref = None
-            if self._settle_artists is not None:
-                self._settle_artists.clear()
             print("[INFO] Settle mode disabled")
 
         self._update_ref_annotation()
         self.viewer.fit_y_to_view()
+        self._redraw_analysis_overlay()
+
+    def _redraw_analysis_overlay(self) -> None:
+        """Re-render the segmentation for whichever space the plot is now in."""
+        if self._last_analysis is None:
+            return
+        if self._settle_artists is None:
+            self._settle_artists = SettleAnalysisArtists(self.viewer.ax)
+        self._settle_artists.draw(
+            self._last_analysis[1],
+            self.viewer.sample_rate_hz,
+            settle=self.viewer.display_space == "settle",
+        )
+        self.viewer.canvas.draw_idle()
 
     def _set_settle_axis_label(self, enabled: bool) -> None:
         color = "white" if self.viewer.dark_mode else "black"
@@ -285,8 +302,16 @@ class PlotEventHandlers:
             zorder=1000,
         )
 
-    def on_analyze_requested(self) -> None:
+    def on_analyze_toggled(self, enabled: bool) -> None:
         """Segment and fit the largest step in view for the selected plot."""
+        if not enabled:
+            if self._settle_artists is not None:
+                self._settle_artists.clear()
+            self._last_analysis = None
+            self.viewer.canvas.draw_idle()
+            print("[INFO] Analysis markers cleared")
+            return
+
         pm = self.viewer.plot_manager
         selected = pm.get_selected_plots()
         if len(selected) != 1:
@@ -374,6 +399,7 @@ class PlotEventHandlers:
                 f"dielectric absorption)"
             )
 
+        self._last_analysis = (plot_index, seg)
         plot.settle_ref = seg.y_final
         self.viewer.control_bar_manager.set_settle_checked(True)
         self.viewer.view_manager.secondary_axis_manager.set_residual_mode(True)
@@ -391,8 +417,7 @@ class PlotEventHandlers:
 
         if self._settle_artists is None:
             self._settle_artists = SettleAnalysisArtists(self.viewer.ax)
-        self._last_segments = seg
-        self._settle_artists.draw(seg, self.viewer.sample_rate_hz)
+        self._settle_artists.draw(seg, self.viewer.sample_rate_hz, settle=True)
         self.viewer.canvas.draw_idle()
 
     def on_grid_changed(self, grid_text: str):

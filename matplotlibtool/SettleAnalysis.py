@@ -13,6 +13,7 @@ positions.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 import numpy as np
@@ -332,7 +333,19 @@ class SettleAnalysisArtists:
             artist.remove()
         self._artists = []
 
-    def draw(self, seg: SettleSegments, sample_rate_hz: float | None = None) -> None:
+    def draw(
+        self,
+        seg: SettleSegments,
+        sample_rate_hz: float | None = None,
+        settle: bool = True,
+    ) -> None:
+        """
+        Render the segmentation. The vertical markers are x positions and mean
+        the same in either space; the horizontal references differ. In settle
+        space that is the noise floor and the fitted straight line; in linear
+        space it is the 10% and 90% levels the crossings were measured against,
+        the final value, and the same pole drawn as the exponential it is.
+        """
         self.clear()
         ax = self.ax
         fmt = x_formatter(sample_rate_hz)
@@ -352,18 +365,47 @@ class SettleAnalysisArtists:
                 )
             )
 
-        self._artists.append(
-            ax.axhline(
-                np.log10(seg.noise_sigma),
-                color=FLOOR_COLOR,
-                linewidth=1.0,
-                linestyle=":",
-                alpha=0.8,
+        if settle:
+            self._artists.append(
+                ax.axhline(
+                    np.log10(seg.noise_sigma),
+                    color=FLOOR_COLOR,
+                    linewidth=1.0,
+                    linestyle=":",
+                    alpha=0.8,
+                )
             )
-        )
+            fit_x = np.array([seg.linear_start_x, seg.linear_end_x])
+            fit_y = seg.slope * (fit_x - seg.fit_x0) + seg.fit_intercept
+            handles = [
+                Line2D([], [], color=POLE_COLOR, label="fitted single pole"),
+                Line2D([], [], color=FLOOR_COLOR, linestyle=":",
+                       label="noise floor (1\u03c3)"),
+            ]
+        else:
+            for level, line_color in (
+                (seg.y_pre + 0.10 * seg.step_height, RISE_COLOR),
+                (seg.y_pre + 0.90 * seg.step_height, RISE_COLOR),
+                (seg.y_final, SETTLED_COLOR),
+            ):
+                self._artists.append(
+                    ax.axhline(
+                        level, color=line_color, linewidth=1.0,
+                        linestyle=":", alpha=0.8,
+                    )
+                )
+            # the same pole, drawn as the exponential it is
+            fit_x = np.linspace(seg.linear_start_x, seg.linear_end_x, 256)
+            residual = 10.0 ** (seg.slope * (fit_x - seg.fit_x0) + seg.fit_intercept)
+            fit_y = seg.y_final - math.copysign(1.0, seg.step_height) * residual
+            handles = [
+                Line2D([], [], color=POLE_COLOR, label="fitted single pole"),
+                Line2D([], [], color=RISE_COLOR, linestyle=":",
+                       label="10% and 90% levels"),
+                Line2D([], [], color=SETTLED_COLOR, linestyle=":",
+                       label="final value"),
+            ]
 
-        fit_x = np.array([seg.linear_start_x, seg.linear_end_x])
-        fit_y = seg.slope * (fit_x - seg.fit_x0) + seg.fit_intercept
         self._artists.append(
             ax.plot(fit_x, fit_y, color=POLE_COLOR, linewidth=1.2, alpha=0.9)[0]
         )
@@ -378,9 +420,7 @@ class SettleAnalysisArtists:
                        label="fitted region"),
                 Line2D([], [], color=SETTLED_COLOR, linestyle="--",
                        label=f"settled ({SETTLED_M:.0f}\u03c3 band)"),
-                Line2D([], [], color=POLE_COLOR, label="fitted single pole"),
-                Line2D([], [], color=FLOOR_COLOR, linestyle=":",
-                       label="noise floor (1\u03c3)"),
+                *handles,
             ],
             loc="upper right",
             fontsize=8,

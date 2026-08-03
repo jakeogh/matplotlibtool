@@ -53,7 +53,7 @@ class ControlBarSignals(QObject):
     # Analysis controls
     sampleRateChanged = pyqtSignal(float)
     settleToggled = pyqtSignal(bool)
-    analyzeRequested = pyqtSignal()
+    analyzeToggled = pyqtSignal(bool)
     saveDataRequested = pyqtSignal()
 
     # View controls
@@ -581,12 +581,17 @@ class ControlBarManager:
 
         analyze_btn = QPushButton("Analyze")
         analyze_btn.setMaximumWidth(70)
+        analyze_btn.setCheckable(True)
+        analyze_btn.setStyleSheet(
+            "QPushButton:checked { background-color: #2d6a4f; color: white; }"
+        )
         analyze_btn.setToolTip(
             "Segment the largest step in the current x window of the selected "
-            "plot: edge, rise time, linear region, settled point. Fits the "
-            "log-residual slope and enables Settle with the converged reference."
+            "plot: edge, rise time, fitted region, settled point. The markers "
+            "stay through the Settle toggle, so the same segmentation can be "
+            "checked against the linear trace. Click again to clear."
         )
-        analyze_btn.clicked.connect(self.signals.analyzeRequested.emit)
+        analyze_btn.toggled.connect(self.signals.analyzeToggled.emit)
         layout.addWidget(analyze_btn)
         self.widgets["analyze_btn"] = analyze_btn
 
@@ -927,6 +932,13 @@ class ControlBarManager:
             self.widgets["rate_unit_combo"].currentText()
         ]
         self.signals.sampleRateChanged.emit(float(text) * multiplier)
+
+    def set_analyze_checked(self, checked: bool):
+        """Set analyze button state without emitting the toggle signal."""
+        btn = self.widgets["analyze_btn"]
+        btn.blockSignals(True)
+        btn.setChecked(checked)
+        btn.blockSignals(False)
 
     def set_settle_checked(self, checked: bool):
         """Set settle checkbox state without emitting the toggle signal."""
