@@ -10,8 +10,10 @@ from pathlib import Path
 import numpy as np
 
 from .MouseMode import MouseMode
-from .SettleAnalysis import RISE_TAU_RATIO
+from .SettleAnalysis import FLOOR_C
+from .SettleAnalysis import MIN_FIT_POINTS
 from .SettleAnalysis import SettleAnalysisArtists
+from .SettleAnalysis import SettleAnalysisError
 from .SettleAnalysis import x_formatter
 from .SettleAnalysis import analyze_settle
 from .SettleAnalysis import text_color
@@ -208,6 +210,14 @@ class PlotEventHandlers:
 
     def on_settle_toggled(self, enabled: bool) -> None:
         """Toggle log10|y - ref| display; ref from the in-view tail per plot."""
+        try:
+            self._apply_settle_mode(enabled)
+        except SettleAnalysisError as exc:
+            print(f"[INFO] {exc}")
+            self._apply_settle_mode(False)
+            self.viewer.control_bar_manager.set_settle_checked(False)
+
+    def _apply_settle_mode(self, enabled: bool) -> None:
         self.viewer.view_manager.secondary_axis_manager.set_residual_mode(enabled)
         self._set_settle_axis_label(enabled)
         if enabled:
@@ -222,7 +232,7 @@ class PlotEventHandlers:
                 idx = np.flatnonzero((x >= xlim[0]) & (x <= xlim[1]))
                 name = self.viewer.plot_manager.get_plot_name(i) or f"Plot {i + 1}"
                 if idx.size < 16:
-                    raise ValueError(
+                    raise SettleAnalysisError(
                         f"settle mode: {name} has {idx.size} samples in view, "
                         f"need >= 16 to estimate a settled reference"
                     )
@@ -313,6 +323,73 @@ class PlotEventHandlers:
 
     def on_analyze_toggled(self, enabled: bool) -> None:
         """Segment and fit the largest step in view for the selected plot."""
+        try:
+            self._run_analysis(enabled)
+        except SettleAnalysisError as exc:
+            print(f"[INFO] {exc}")
+            self.viewer.control_bar_manager.set_analyze_checked(False)
+
+    def _report_pole_fit(self, seg, fmt) -> None:
+        """Report the exponential fit, or why there isn't one."""
+        fit = seg.fit
+        if fit is None:
+            print(
+                f"[INFO]   tau(fit): none. The residual clears the "
+                f"{int(FLOOR_C)}-sigma floor in fewer than {MIN_FIT_POINTS} "
+                f"samples, so the decay is unresolved at this sample rate and "
+                f"only tau(rise) is available. Raise the sample rate to fit it"
+            )
+            return
+
+        print(
+            f"[INFO]   linear:   x {fit.start_x:.6g} .. {fit.end_x:.6g} "
+            f"({fit.n_points} pts), slope {fit.slope:.4g} dec/x, "
+            f"rms {fit.rms:.3g} dec"
+        )
+        print(
+            f"[INFO]   tau(fit): {fmt(fit.tau)} from the log-residual slope "
+            f"(1 decade per {fmt(-1.0 / fit.slope)})"
+        )
+
+        # the two tau estimates agree only for a single pole; which way they
+        # disagree says what the trace is actually doing
+        ratio = fit.tau / seg.tau_from_rise
+        if ratio > 1.3:
+            print(
+                f"[INFO]   WARNING: the fitted tau is {ratio:.3g}x the one implied "
+                f"by the rise time; the fit is following a slow tail, not the "
+                f"edge. The dominant pole is tau(rise) = {fmt(seg.tau_from_rise)}; "
+                f"tau(fit) = {fmt(fit.tau)} describes a separate slow component"
+            )
+        elif ratio < 0.77:
+            print(
+                f"[INFO]   WARNING: the measured rise is {1.0 / ratio:.3g}x slower "
+                f"than the fitted tau implies; the edge is slew limited, not "
+                f"bandwidth limited"
+            )
+        halves = (fit.slope_first_half, fit.slope_second_half)
+        if abs(halves[0] - halves[1]) > 0.15 * abs(fit.slope):
+            print(
+                f"[INFO]   WARNING: slope changes {halves[0]:.4g} -> "
+                f"{halves[1]:.4g} dec/x across the region; possible secondary "
+                f"pole or thermal tail"
+            )
+        if fit.lead_trim_decades > 0.5:
+            print(
+                f"[INFO]   WARNING: fit rejected the top "
+                f"{fit.lead_trim_decades:.2g} decades of the settle; the early "
+                f"response is not on this pole (secondary pole or slew), tau "
+                f"describes the late tail only"
+            )
+        if fit.tail_trim_decades > 0.5:
+            print(
+                f"[INFO]   WARNING: fit rejected the bottom "
+                f"{fit.tail_trim_decades:.2g} decades above the noise floor; "
+                f"the late response departs from this pole (thermal tail or "
+                f"dielectric absorption)"
+            )
+
+    def _run_analysis(self, enabled: bool) -> None:
         if not enabled:
             if self._settle_artists is not None:
                 self._settle_artists.clear()
@@ -324,7 +401,7 @@ class PlotEventHandlers:
         pm = self.viewer.plot_manager
         selected = pm.get_selected_plots()
         if len(selected) != 1:
-            raise ValueError(
+            raise SettleAnalysisError(
                 "settle analysis: select a single plot in the Plot/Group dropdown"
             )
         plot_index = selected[0]
@@ -337,9 +414,9 @@ class PlotEventHandlers:
             plot.points[:, 1] * plot.y_scale + plot.offset_y,
             xlim,
         )
+        self._last_analysis = (plot_index, seg)
 
         fmt = x_formatter(self.viewer.sample_rate_hz)
-        tau_from_rise = seg.rise_10_90 / RISE_TAU_RATIO
         print(f"[INFO] Settle analysis: {name}")
         print(
             f"[INFO]   step:     {seg.step_height:+.6g} "
@@ -347,7 +424,7 @@ class PlotEventHandlers:
         )
         print(
             f"[INFO]   noise:    sigma {seg.noise_sigma:.4g} "
-            f"(pre-step baseline, {seg.baseline_n} samples)"
+            f"(baseline {seg.baseline_sigma:.4g}, {seg.baseline_n} samples)"
         )
         print(f"[INFO]   edge:     x {seg.edge_start_x:.6g} .. {seg.edge_end_x:.6g}")
         print(
@@ -355,60 +432,16 @@ class PlotEventHandlers:
             f"20-80% {fmt(seg.rise_20_80)}, x {seg.rise_x10:.6g} .. "
             f"{seg.rise_x90:.6g}"
         )
-        print(f"[INFO]   tau(rise): {fmt(tau_from_rise)} from the 10-90% transition")
         print(
-            f"[INFO]   linear:   x {seg.linear_start_x:.6g} .. "
-            f"{seg.linear_end_x:.6g} ({seg.n_fit_points} pts), slope "
-            f"{seg.slope:.4g} dec/x, rms {seg.fit_rms:.3g} dec"
-        )
-        print(
-            f"[INFO]   tau(fit): {fmt(seg.tau)} from the log-residual slope "
-            f"(1 decade per {fmt(-1.0 / seg.slope)})"
+            f"[INFO]   tau(rise): {fmt(seg.tau_from_rise)} from the 10-90% transition"
         )
         print(
             f"[INFO]   settled:  x {seg.settled_x:.6g}, settling time "
             f"{fmt(seg.settling_time)} to the 4-sigma band"
         )
 
-        # the two tau estimates agree only for a single pole; which way they
-        # disagree says what the trace is actually doing
-        ratio = seg.tau / tau_from_rise
-        if ratio > 1.3:
-            print(
-                f"[INFO]   WARNING: the fitted tau is {ratio:.3g}x the one implied "
-                f"by the rise time; the fit is following a slow tail, not the "
-                f"edge. The dominant pole is tau(rise) = {fmt(tau_from_rise)}; "
-                f"tau(fit) = {fmt(seg.tau)} describes a separate slow component"
-            )
-        elif ratio < 0.77:
-            print(
-                f"[INFO]   WARNING: the measured rise is {1.0 / ratio:.3g}x slower "
-                f"than the fitted tau implies; the edge is slew limited, not "
-                f"bandwidth limited"
-            )
-        halves = (seg.slope_first_half, seg.slope_second_half)
-        if abs(halves[0] - halves[1]) > 0.15 * abs(seg.slope):
-            print(
-                f"[INFO]   WARNING: slope changes {halves[0]:.4g} -> "
-                f"{halves[1]:.4g} dec/x across the region; possible secondary "
-                f"pole or thermal tail"
-            )
-        if seg.lead_trim_decades > 0.5:
-            print(
-                f"[INFO]   WARNING: fit rejected the top "
-                f"{seg.lead_trim_decades:.2g} decades of the settle; the early "
-                f"response is not on this pole (secondary pole or slew), tau "
-                f"describes the late tail only"
-            )
-        if seg.tail_trim_decades > 0.5:
-            print(
-                f"[INFO]   WARNING: fit rejected the bottom "
-                f"{seg.tail_trim_decades:.2g} decades above the noise floor; "
-                f"the late response departs from this pole (thermal tail or "
-                f"dielectric absorption)"
-            )
+        self._report_pole_fit(seg, fmt)
 
-        self._last_analysis = (plot_index, seg)
         plot.settle_ref = seg.y_final
         self.viewer.control_bar_manager.set_settle_checked(True)
         self.viewer.view_manager.secondary_axis_manager.set_residual_mode(True)

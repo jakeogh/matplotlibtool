@@ -63,10 +63,10 @@ class Overlay:
 
         residual = np.abs(pts[:, 1].astype(np.float64) - self.settle_ref)
         positive = residual[residual > 0.0]
-        if positive.size == 0:
-            raise ValueError("settle mode: every sample equals the reference")
-        # zero residuals (sub-LSB) floored at half the smallest nonzero residual
-        floor = float(positive.min()) * 0.5
+        # zero residuals floored at half the smallest nonzero one; a trace that
+        # is exactly constant has no nonzero residual at all, and is a
+        # degenerate case to render at one code, not to raise from a paint path
+        floor = float(positive.min()) * 0.5 if positive.size else 1.0
 
         out = np.empty_like(pts, dtype=np.float32)
         out[:, 0] = pts[:, 0]
