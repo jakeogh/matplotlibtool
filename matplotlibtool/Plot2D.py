@@ -59,6 +59,8 @@ from .PlotManager import PlotManager
 from .PointHover import PointHoverManager
 from .ViewHistory import ViewHistory
 from .ViewManager import ViewBounds
+from .ViewManager import X_PAD_RATIO
+from .ViewManager import Y_PAD_RATIO
 from .ViewManager import ViewManager
 
 
@@ -349,7 +351,7 @@ class Plot2D(QMainWindow):
     def compute_y_fit(
         self,
         xlim: tuple[float, float],
-        pad_ratio: float = 0.05,
+        pad_ratio: float = Y_PAD_RATIO,
     ) -> tuple[float, float] | None:
         """Y range enclosing visible display data inside xlim, padded."""
         ymin = math.inf
@@ -373,7 +375,7 @@ class Plot2D(QMainWindow):
         pad = span * pad_ratio
         return (ymin - pad, ymax + pad)
 
-    def fit_y_to_view(self, pad_ratio: float = 0.05, record: bool = True) -> None:
+    def fit_y_to_view(self, pad_ratio: float = Y_PAD_RATIO, record: bool = True) -> None:
         """Refit y to the data inside the current x window, keeping x fixed."""
         xlim = self.view_manager.get_current_bounds().xlim
         ylim = self.compute_y_fit(xlim, pad_ratio)
@@ -435,13 +437,17 @@ class Plot2D(QMainWindow):
         self._update_plot()
         self.canvas.draw_idle()
 
-    def fit_view(self, pad_ratio: float = 0.05) -> ViewBounds:
+    def fit_view(
+        self,
+        x_pad_ratio: float = X_PAD_RATIO,
+        y_pad_ratio: float = Y_PAD_RATIO,
+    ) -> ViewBounds:
         """Fit view to all visible data; unit square when there is none."""
         all_points = [
             plot.display_points() for plot in self.plot_manager.get_visible_plots()
         ]
 
-        bounds = ViewManager.compute_fit_bounds(all_points, pad_ratio)
+        bounds = ViewManager.compute_fit_bounds(all_points, x_pad_ratio, y_pad_ratio)
         if bounds is None:
             return self.set_view((0.0, 1.0), (0.0, 1.0))
         return self.set_view(bounds.xlim, bounds.ylim)
@@ -594,7 +600,7 @@ class Plot2D(QMainWindow):
         self.array_field_integration.register_array_group(array_index, group_id)
 
         if len(self.plot_manager.plots) == 1 and not self._custom_bounds_provided:
-            self.fit_view(pad_ratio=0.05 if (normalize or center) else 0.1)
+            self.fit_view()
 
         self._update_plot()
         self.canvas.draw_idle()
@@ -732,7 +738,7 @@ class Plot2D(QMainWindow):
                 return
 
             if self.plot_manager.get_visible_plots():
-                bounds = self.fit_view(pad_ratio=0.05)
+                bounds = self.fit_view()
                 print(
                     f"[INFO] Initial view fitted to all data: X({bounds.xlim[0]:.3f}, {bounds.xlim[1]:.3f}), Y({bounds.ylim[0]:.3f}, {bounds.ylim[1]:.3f})"
                 )

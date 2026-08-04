@@ -846,7 +846,7 @@ class PlotEventHandlers:
 
     def fit_view_to_data(self):
         with self.viewer.busy_manager.busy_operation("Fitting view to data"):
-            bounds = self.viewer.fit_view(pad_ratio=0.05)
+            bounds = self.viewer.fit_view()
             print(
                 f"[INFO] Fit view to data bounds: X({bounds.xlim[0]:.3f}, {bounds.xlim[1]:.3f}), Y({bounds.ylim[0]:.3f}, {bounds.ylim[1]:.3f})"
             )
@@ -862,7 +862,7 @@ class PlotEventHandlers:
 
     def reset_view(self) -> None:
         with self.viewer.busy_manager.busy_operation("Resetting view"):
-            self.viewer.fit_view(pad_ratio=0.1)
+            self.viewer.fit_view()
 
     def apply_view_bounds(self):
         """Apply custom view bounds from the text fields."""

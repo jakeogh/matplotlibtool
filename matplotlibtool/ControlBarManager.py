@@ -547,6 +547,93 @@ class ControlBarManager:
             self.widgets[f"mode_{mode_name.lower()}_btn"] = mode_btn
         self.widgets["mode_zoom_btn"].setChecked(True)
 
+
+        back_btn = QPushButton("◀")
+        back_btn.setMaximumWidth(30)
+        back_btn.setToolTip("Back to previous view")
+        back_btn.setEnabled(False)
+        back_btn.clicked.connect(self.signals.viewBackRequested.emit)
+        layout.addWidget(back_btn)
+        self.widgets["view_back_btn"] = back_btn
+
+        forward_btn = QPushButton("▶")
+        forward_btn.setMaximumWidth(30)
+        forward_btn.setToolTip("Forward to next view")
+        forward_btn.setEnabled(False)
+        forward_btn.clicked.connect(self.signals.viewForwardRequested.emit)
+        layout.addWidget(forward_btn)
+        self.widgets["view_forward_btn"] = forward_btn
+
+        reset_btn = QPushButton("Reset View")
+        reset_btn.setMaximumWidth(90)
+        reset_btn.clicked.connect(self.signals.resetRequested.emit)
+        layout.addWidget(reset_btn)
+        self.widgets["reset_btn"] = reset_btn
+
+        if not self.parent.embedded:
+            exit_btn = QPushButton("Exit")
+            exit_btn.setMaximumWidth(60)
+            exit_btn.clicked.connect(self.signals.exitRequested.emit)
+            layout.addWidget(exit_btn)
+            self.widgets["exit_btn"] = exit_btn
+
+        info_label = QLabel("")
+        layout.addWidget(info_label)
+        self.widgets["info_label"] = info_label
+
+        status_label = QLabel("")
+        status_label.setMinimumWidth(60)
+        status_label.setMaximumWidth(80)
+        layout.addWidget(status_label)
+        self.widgets["status_label"] = status_label
+
+        layout.addStretch()
+        return row
+
+    def _create_row3(self) -> QWidget:
+        """Create third control row: View bounds and offset controls."""
+        row = QWidget()
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(
+            8,
+            4,
+            8,
+            4,
+        )
+        layout.setSpacing(8)
+
+        fit_view_btn = QPushButton("Fit View")
+        fit_view_btn.setMaximumWidth(80)
+        fit_view_btn.clicked.connect(self.signals.fitViewRequested.emit)
+        fit_view_btn.setToolTip("Fit view to show all data with original aspect ratio")
+        layout.addWidget(fit_view_btn)
+        self.widgets["fit_view_btn"] = fit_view_btn
+
+        bounds_widgets = self._create_view_bounds_controls()
+        for widget in bounds_widgets:
+            layout.addWidget(widget)
+
+        layout.addWidget(QLabel("Offset"))
+
+        offset_widgets = self._create_offset_controls()
+        for widget in offset_widgets:
+            layout.addWidget(widget)
+
+        layout.addStretch()
+        return row
+
+    def _create_secondary_axis_row(self) -> QWidget:
+        """Create fourth control row: Secondary Y-axis configuration."""
+        row = QWidget()
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(
+            8,
+            4,
+            8,
+            4,
+        )
+        layout.setSpacing(8)
+
         layout.addWidget(QLabel("Rate:"))
         rate_edit = QLineEdit()
         rate_edit.setMaximumWidth(70)
@@ -635,100 +722,6 @@ class ControlBarManager:
         layout.addWidget(peaks_chk)
         self.widgets["peaks_chk"] = peaks_chk
 
-        back_btn = QPushButton("◀")
-        back_btn.setMaximumWidth(30)
-        back_btn.setToolTip("Back to previous view")
-        back_btn.setEnabled(False)
-        back_btn.clicked.connect(self.signals.viewBackRequested.emit)
-        layout.addWidget(back_btn)
-        self.widgets["view_back_btn"] = back_btn
-
-        forward_btn = QPushButton("▶")
-        forward_btn.setMaximumWidth(30)
-        forward_btn.setToolTip("Forward to next view")
-        forward_btn.setEnabled(False)
-        forward_btn.clicked.connect(self.signals.viewForwardRequested.emit)
-        layout.addWidget(forward_btn)
-        self.widgets["view_forward_btn"] = forward_btn
-
-        reset_btn = QPushButton("Reset View")
-        reset_btn.setMaximumWidth(90)
-        reset_btn.clicked.connect(self.signals.resetRequested.emit)
-        layout.addWidget(reset_btn)
-        self.widgets["reset_btn"] = reset_btn
-
-        if not self.parent.embedded:
-            exit_btn = QPushButton("Exit")
-            exit_btn.setMaximumWidth(60)
-            exit_btn.clicked.connect(self.signals.exitRequested.emit)
-            layout.addWidget(exit_btn)
-            self.widgets["exit_btn"] = exit_btn
-
-        clock_label = QLabel("")
-        clock_label.setStyleSheet("font-family: monospace;")
-        clock_label.setToolTip(
-            "Current unix timestamp, so a screenshot carries the time it was taken."
-        )
-        layout.addWidget(clock_label)
-        self.widgets["clock_label"] = clock_label
-
-        info_label = QLabel("")
-        layout.addWidget(info_label)
-        self.widgets["info_label"] = info_label
-
-        status_label = QLabel("")
-        status_label.setMinimumWidth(60)
-        status_label.setMaximumWidth(80)
-        layout.addWidget(status_label)
-        self.widgets["status_label"] = status_label
-
-        layout.addStretch()
-        return row
-
-    def _create_row3(self) -> QWidget:
-        """Create third control row: View bounds and offset controls."""
-        row = QWidget()
-        layout = QHBoxLayout(row)
-        layout.setContentsMargins(
-            8,
-            4,
-            8,
-            4,
-        )
-        layout.setSpacing(8)
-
-        fit_view_btn = QPushButton("Fit View")
-        fit_view_btn.setMaximumWidth(80)
-        fit_view_btn.clicked.connect(self.signals.fitViewRequested.emit)
-        fit_view_btn.setToolTip("Fit view to show all data with original aspect ratio")
-        layout.addWidget(fit_view_btn)
-        self.widgets["fit_view_btn"] = fit_view_btn
-
-        bounds_widgets = self._create_view_bounds_controls()
-        for widget in bounds_widgets:
-            layout.addWidget(widget)
-
-        layout.addWidget(QLabel("Offset"))
-
-        offset_widgets = self._create_offset_controls()
-        for widget in offset_widgets:
-            layout.addWidget(widget)
-
-        layout.addStretch()
-        return row
-
-    def _create_secondary_axis_row(self) -> QWidget:
-        """Create fourth control row: Secondary Y-axis configuration."""
-        row = QWidget()
-        layout = QHBoxLayout(row)
-        layout.setContentsMargins(
-            8,
-            4,
-            8,
-            4,
-        )
-        layout.setSpacing(8)
-
         secondary_enable_chk = QCheckBox("Secondary Y-Axis")
         secondary_enable_chk.toggled.connect(self._on_secondary_axis_toggled)
         layout.addWidget(secondary_enable_chk)
@@ -794,6 +787,15 @@ class ControlBarManager:
         self.secondary_axis_widgets["apply"] = apply_btn
 
         layout.addStretch()
+
+        clock_label = QLabel("")
+        clock_label.setStyleSheet("font-family: monospace;")
+        clock_label.setToolTip(
+            "Current unix timestamp, so a screenshot carries the time it was taken."
+        )
+        layout.addWidget(clock_label)
+        self.widgets["clock_label"] = clock_label
+
         return row
 
     def _create_view_bounds_controls(self) -> list[QWidget]:

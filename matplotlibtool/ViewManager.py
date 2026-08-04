@@ -15,6 +15,13 @@ from .AxisSecondaryManagerDual import AxisSecondaryManagerDual
 from .AxisType import AxisType
 
 
+# The x axis carries a sequence, so the eye reads it from the data rather than
+# from the space around it, and margin there is wasted width. The y axis is read
+# against its own extremes, which do need room to sit clear of the frame.
+X_PAD_RATIO = 0.0075
+Y_PAD_RATIO = 0.05
+
+
 @dataclass(frozen=True)
 class ViewBounds:
     """View boundary container. Invalid bounds are a hard error."""
@@ -80,7 +87,8 @@ class ViewManager:
     @staticmethod
     def compute_fit_bounds(
         data_points: list[np.ndarray],
-        pad_ratio: float = 0.05,
+        x_pad_ratio: float = X_PAD_RATIO,
+        y_pad_ratio: float = Y_PAD_RATIO,
     ) -> ViewBounds | None:
         """Bounds enclosing all points, padded. None if there are no points."""
         nonempty = [p for p in data_points if p.size]
@@ -94,8 +102,8 @@ class ViewManager:
 
         x_range = (x_max - x_min) or 1.0
         y_range = (y_max - y_min) or 1.0
-        x_pad = x_range * pad_ratio
-        y_pad = y_range * pad_ratio
+        x_pad = x_range * x_pad_ratio
+        y_pad = y_range * y_pad_ratio
         # zero-extent axes still need a nonzero window
         if x_max == x_min:
             x_pad = max(x_pad, 0.5)
