@@ -352,6 +352,7 @@ class ControlBarManager:
         size_spin.setDecimals(3)
         size_spin.setMaximumWidth(80)
         size_spin.setKeyboardTracking(False)
+        size_spin.setEnabled(False)  # auto sizing is on by default
         size_spin.editingFinished.connect(
             lambda: self.signals.sizeChanged.emit(size_spin.value())
         )
@@ -359,6 +360,7 @@ class ControlBarManager:
         self.widgets["size_spin"] = size_spin
 
         auto_size_chk = QCheckBox("Auto")
+        auto_size_chk.setChecked(True)
         auto_size_chk.setToolTip(
             "Size the markers from how many points are drawn in the current "
             "view, so zooming in enlarges them. The size field keeps showing "
@@ -731,6 +733,7 @@ class ControlBarManager:
             "horizontal line across that pixel's dwell, using the window "
             "measured from the capture."
         )
+        pixel_dc_chk.setChecked(True)
         pixel_dc_chk.toggled.connect(self.signals.pixelDcToggled.emit)
         layout.addWidget(pixel_dc_chk)
         self.widgets["pixel_dc_chk"] = pixel_dc_chk
@@ -740,6 +743,7 @@ class ControlBarManager:
             "Label the analyzed peaks of this spectrum with their frequency. "
             "Only spectrum windows opened by the FFT button carry peak data."
         )
+        peaks_chk.setEnabled(False)  # only a spectrum view has peaks
         peaks_chk.toggled.connect(self.signals.peaksToggled.emit)
         layout.addWidget(peaks_chk)
         self.widgets["peaks_chk"] = peaks_chk
@@ -1034,6 +1038,16 @@ class ControlBarManager:
                     break
         rate_edit.blockSignals(False)
         unit_combo.blockSignals(False)
+
+    def set_spectrum_mode(self, enabled: bool) -> None:
+        """
+        Mark this control bar as belonging to a spectrum view.
+
+        Peak labelling has nothing to label outside one, and taking the
+        spectrum of a spectrum is not a thing anyone wants.
+        """
+        self.widgets["peaks_chk"].setEnabled(enabled)
+        self.widgets["fft_btn"].setEnabled(not enabled)
 
     def set_peaks_checked(self, checked: bool):
         """Set peaks checkbox state without emitting the toggle signal."""

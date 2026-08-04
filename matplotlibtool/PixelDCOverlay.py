@@ -41,6 +41,7 @@ class PixelDCOverlay:
         self.start = 0
         self.length = 0
         self.dwell_length = 0
+        self.measured = True
 
     @property
     def active(self) -> bool:
@@ -59,17 +60,31 @@ class PixelDCOverlay:
         value_field: str,
         pixel_field: str = "pixel",
         idle_pixel: int = 0,
+        start: int | None = None,
+        length: int | None = None,
     ) -> None:
         """
-        Measure the window from the capture, then average each dwell with it.
+        Average each dwell over the window, and draw what the averager writes.
 
-        The same window applies to every dwell, so the levels here are the ones
-        the averager would write.
+        start and length default to the window measured from the capture. Given
+        explicitly they are used as-is, so the overlay shows the levels the
+        operator's own window produces rather than the measured one.
         """
         report = analyse_pixels(data, value_field=value_field, pixel_field=pixel_field)
-        self.start = report.recommended_start
-        self.length = report.recommended_length
         self.dwell_length = report.geometry.modal_length
+        self.start = report.recommended_start if start is None else start
+        self.length = report.recommended_length if length is None else length
+        self.measured = start is None and length is None
+
+        if self.start < 0 or self.length < 1:
+            raise PixelAnalysisError(
+                f"pixel dc: window start {self.start} length {self.length} is empty"
+            )
+        if self.start + self.length > self.dwell_length:
+            raise PixelAnalysisError(
+                f"pixel dc: window start {self.start} length {self.length} runs "
+                f"past the {self.dwell_length} record dwell"
+            )
 
         pixel = data[pixel_field]
         starts, ends = segment_dwells(pixel)

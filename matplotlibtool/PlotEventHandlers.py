@@ -47,6 +47,7 @@ class PlotEventHandlers:
         self._last_analysis = None   # (plot_index, SettleSegments)
         self._pixel_dc: PixelDCOverlay | None = None
         self._pixel_dc_plot: int | None = None
+        self._pixel_dc_window: tuple[int | None, int | None] = (None, None)
         self._fft_windows: list = []
         self._peak_artists = None
         self._fft_source = None      # FFTResult carried by a spectrum window
@@ -601,6 +602,7 @@ class PlotEventHandlers:
         """Carry the analysis in this viewer; label peaks with the box checked."""
         self._fft_source = res
         self._fft_plot_index = plot_index
+        self.viewer.control_bar_manager.set_spectrum_mode(True)
         if res.peaks:
             self.viewer.control_bar_manager.set_peaks_checked(True)
             self.on_peaks_toggled(True)
@@ -693,18 +695,46 @@ class PlotEventHandlers:
             return
 
         plot_index, value_field, data = self._selected_source_array()
+        start, length = self._pixel_dc_window
         overlay = PixelDCOverlay(self.viewer.ax)
         with self.viewer.busy_manager.busy_operation("Pixel DC"):
-            overlay.compute(data, value_field=value_field)
+            overlay.compute(data, value_field=value_field, start=start, length=length)
         self._pixel_dc = overlay
         self._pixel_dc_plot = plot_index
+        source = "measured" if overlay.measured else "set"
         print(
             f"[INFO] Pixel DC: window start {overlay.start} length "
-            f"{overlay.length} of {overlay.dwell_length} records, "
+            f"{overlay.length} ({source}) of {overlay.dwell_length} records, "
             f"{len(overlay._dc):,} dwells"
         )
         self.viewer._update_plot()
         self.viewer.canvas.draw_idle()
+
+    def try_default_pixel_dc(self) -> None:
+        """
+        Bring the overlay up on load, since the box defaults to checked.
+
+        Data without a pixel field cannot carry the overlay at all, so the box
+        is released rather than left checked over an empty overlay.
+        """
+        chk = self.viewer.control_bar_manager.get_widget("pixel_dc_chk")
+        if not chk.isChecked() or self._pixel_dc is not None:
+            return
+        try:
+            self._apply_pixel_dc(True)
+        except PixelAnalysisError as exc:
+            print(f"[INFO] {exc}")
+            self._apply_pixel_dc(False)
+            self.viewer.control_bar_manager.set_pixel_dc_checked(False)
+
+    def set_pixel_dc_window(self, start: int | None, length: int | None) -> None:
+        """Adopt a new averaging window and redraw the overlay if it is showing."""
+        window = (start, length)
+        if window == self._pixel_dc_window:
+            return
+        self._pixel_dc_window = window
+        if self.viewer.control_bar_manager.get_widget("pixel_dc_chk").isChecked():
+            self.on_pixel_dc_toggled(True)
 
     def update_pixel_dc(self, xlim: tuple[float, float]) -> None:
         """Re-cull the DC segments to the view; called from the render."""

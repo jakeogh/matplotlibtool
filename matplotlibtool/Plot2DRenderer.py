@@ -24,7 +24,7 @@ from .Plot2DOverlay import Overlay
 # Markers are sized against the spacing between the points actually drawn, so a
 # dense view gets specks and a zoomed-in one gets dots that can be aimed at. The
 # scatter size is an area in points squared, hence the square of the diameter.
-AUTO_FILL = 0.64        # fraction of the inter-point spacing a marker occupies
+AUTO_FILL = 0.576       # fraction of the inter-point spacing a marker occupies
 AUTO_SIZE_MIN = 0.2
 AUTO_SIZE_MAX = 144.0   # 12 point diameter
 

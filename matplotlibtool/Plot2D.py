@@ -602,6 +602,7 @@ class Plot2D(QMainWindow):
         if len(self.plot_manager.plots) == 1 and not self._custom_bounds_provided:
             self.fit_view()
 
+        self.event_handlers.try_default_pixel_dc()
         self._update_plot()
         self.canvas.draw_idle()
 
@@ -609,6 +610,16 @@ class Plot2D(QMainWindow):
         self.control_bar_integration.sync_controls_to_selection()
 
         return processed.transform_params
+
+    def set_pixel_dc_window(self, start: int | None, length: int | None) -> None:
+        """
+        Set the averaging window the DC overlay draws.
+
+        None for either measures it from the capture. Recomputes immediately
+        when the overlay is showing, so the levels on screen always match the
+        window in force.
+        """
+        self.event_handlers.set_pixel_dc_window(start, length)
 
     def sync_auto_point_size(self) -> None:
         """
