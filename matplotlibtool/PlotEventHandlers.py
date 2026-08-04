@@ -11,6 +11,7 @@ import numpy as np
 from matplotlib.ticker import EngFormatter
 
 from .FFTAnalysis import FFTAnalysisError
+from .FFTAnalysis import FFTPeakArtists
 from .FFTAnalysis import FFTResult
 from .FFTAnalysis import OVERLAP
 from .FFTAnalysis import WINDOW
@@ -39,6 +40,8 @@ class PlotEventHandlers:
         self._ref_annotation = None
         self._last_analysis = None   # (plot_index, SettleSegments)
         self._fft_windows: list = []
+        self._peak_artists = None
+        self._peak_labels = None     # (peaks, frequency formatter), when a spectrum
 
     def _should_throttle_scaling(self) -> bool:
         now = time.time() * 1000
@@ -549,6 +552,29 @@ class PlotEventHandlers:
                 f"snr {peak.snr_db:.1f} dB)"
             )
 
+    def on_peaks_toggled(self, enabled: bool) -> None:
+        """Label the analyzed peaks of this spectrum with their frequency."""
+        if self._peak_labels is None:
+            print(
+                "[INFO] peaks: no spectrum peak data in this window; "
+                "the FFT button opens a spectrum window that carries it"
+            )
+            self.viewer.control_bar_manager.set_peaks_checked(False)
+            return
+        if self._peak_artists is None:
+            self._peak_artists = FFTPeakArtists(self.viewer.ax)
+        if enabled:
+            self._peak_artists.draw(*self._peak_labels)
+        else:
+            self._peak_artists.clear()
+        self.viewer.canvas.draw_idle()
+
+    def attach_peak_labels(self, peaks, formatter) -> None:
+        """Carry analyzed peaks in this viewer and label them, box checked."""
+        self._peak_labels = (tuple(peaks), formatter)
+        self.viewer.control_bar_manager.set_peaks_checked(True)
+        self.on_peaks_toggled(True)
+
     def _open_spectrum_window(self, name: str, res: FFTResult) -> None:
         from .Plot2D import Plot2D   # deferred: Plot2D imports this module
 
@@ -585,6 +611,10 @@ class PlotEventHandlers:
         color = "white" if window.dark_mode else "black"
         window.ax.set_xlabel(f"frequency [{res.frequency_unit}]", color=color)
         window.ax.set_ylabel("amplitude [dB]", color=color)
+        if res.peaks:
+            window.event_handlers.attach_peak_labels(
+                res.peaks, self._freq_formatter(res)
+            )
         window.show()
         window.raise_()
         window.activateWindow()

@@ -50,6 +50,48 @@ MIN_NFFT = 1024
 MAX_NFFT = 1 << 20
 SPACING_TOL = 1e-3          # relative deviation of dx that still counts as uniform
 REPORT_PEAKS = 8
+PEAK_LABEL_COLOR = "#ff8c00"
+
+
+class FFTPeakArtists:
+    """Markers and frequency labels for analyzed peaks, drawn on one axes."""
+
+    def __init__(self, ax):
+        self.ax = ax
+        self._artists: list = []
+
+    def clear(self) -> None:
+        for artist in self._artists:
+            artist.remove()
+        self._artists = []
+
+    def draw(self, peaks: tuple[Peak, ...], formatter) -> None:
+        self.clear()
+        for peak in peaks:
+            self._artists.append(
+                self.ax.plot(
+                    [peak.frequency],
+                    [peak.db],
+                    marker="o",
+                    markersize=3,
+                    color=PEAK_LABEL_COLOR,
+                    linestyle="none",
+                    zorder=999,
+                )[0]
+            )
+            self._artists.append(
+                self.ax.annotate(
+                    formatter(peak.frequency),
+                    (peak.frequency, peak.db),
+                    textcoords="offset points",
+                    xytext=(6, -2),
+                    ha="left",
+                    va="top",
+                    fontsize=8,
+                    color=PEAK_LABEL_COLOR,
+                    zorder=1000,
+                )
+            )
 
 
 @dataclass(frozen=True)

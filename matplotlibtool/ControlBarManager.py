@@ -55,6 +55,7 @@ class ControlBarSignals(QObject):
     settleToggled = pyqtSignal(bool)
     analyzeToggled = pyqtSignal(bool)
     fftRequested = pyqtSignal()
+    peaksToggled = pyqtSignal(bool)
     saveDataRequested = pyqtSignal()
 
     # View controls
@@ -610,6 +611,15 @@ class ControlBarManager:
         layout.addWidget(fft_btn)
         self.widgets["fft_btn"] = fft_btn
 
+        peaks_chk = QCheckBox("Peaks")
+        peaks_chk.setToolTip(
+            "Label the analyzed peaks of this spectrum with their frequency. "
+            "Only spectrum windows opened by the FFT button carry peak data."
+        )
+        peaks_chk.toggled.connect(self.signals.peaksToggled.emit)
+        layout.addWidget(peaks_chk)
+        self.widgets["peaks_chk"] = peaks_chk
+
         back_btn = QPushButton("◀")
         back_btn.setMaximumWidth(30)
         back_btn.setToolTip("Back to previous view")
@@ -962,6 +972,13 @@ class ControlBarManager:
         btn.blockSignals(True)
         btn.setChecked(checked)
         btn.blockSignals(False)
+
+    def set_peaks_checked(self, checked: bool):
+        """Set peaks checkbox state without emitting the toggle signal."""
+        chk = self.widgets["peaks_chk"]
+        chk.blockSignals(True)
+        chk.setChecked(checked)
+        chk.blockSignals(False)
 
     def set_settle_checked(self, checked: bool):
         """Set settle checkbox state without emitting the toggle signal."""
