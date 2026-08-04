@@ -164,6 +164,16 @@ class PlotEventHandlers:
             with filepath.open("w") as handle:
                 handle.write(f"# saved: {datetime.now().isoformat()}\n")
                 handle.write(f"# x_window: {float(xlim[0]):.10g} {float(xlim[1]):.10g}\n")
+                handle.write(
+                    f"# y_window: {float(bounds.ylim[0]):.10g} "
+                    f"{float(bounds.ylim[1]):.10g}\n"
+                )
+                rate = self.viewer.sample_rate_hz
+                handle.write(
+                    f"# sample_rate_sps: {rate:.10g}\n" if rate
+                    else "# sample_rate_sps: unset\n"
+                )
+                handle.write(f"# settle_mode: {self.viewer.display_space}\n")
                 if y_mgr.is_enabled() and y_mgr.config is not None:
                     cfg = y_mgr.config
                     handle.write(
