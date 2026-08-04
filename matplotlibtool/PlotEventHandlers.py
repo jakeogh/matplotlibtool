@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import math
 import time
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 
@@ -41,7 +43,8 @@ class PlotEventHandlers:
         self._last_analysis = None   # (plot_index, SettleSegments)
         self._fft_windows: list = []
         self._peak_artists = None
-        self._peak_labels = None     # (peaks, frequency formatter), when a spectrum
+        self._fft_source = None      # FFTResult carried by a spectrum window
+        self._fft_plot_index = None  # index of the spectrum plot in this viewer
 
     def _should_throttle_scaling(self) -> bool:
         now = time.time() * 1000
@@ -227,6 +230,17 @@ class PlotEventHandlers:
             print(f"[INFO] Sample rate: {self.viewer.sample_rate_hz:,.0f} SPS")
 
         self._redraw_analysis_overlay()
+        self._rescale_attached_spectrum()
+
+        # spectra derive from this record: keep open spectrum windows on the
+        # source rate, mirroring it into their Rate widgets
+        for window in self._fft_windows:
+            window.control_bar_manager.set_sample_rate_display(
+                self.viewer.sample_rate_hz
+            )
+            window.event_handlers.on_sample_rate_changed(
+                self.viewer.sample_rate_hz or 0.0
+            )
 
     def on_settle_toggled(self, enabled: bool) -> None:
         """Toggle log10|y - ref| display; ref from the in-view tail per plot."""
@@ -554,7 +568,7 @@ class PlotEventHandlers:
 
     def on_peaks_toggled(self, enabled: bool) -> None:
         """Label the analyzed peaks of this spectrum with their frequency."""
-        if self._peak_labels is None:
+        if self._fft_source is None or not self._fft_source.peaks:
             print(
                 "[INFO] peaks: no spectrum peak data in this window; "
                 "the FFT button opens a spectrum window that carries it"
@@ -564,16 +578,88 @@ class PlotEventHandlers:
         if self._peak_artists is None:
             self._peak_artists = FFTPeakArtists(self.viewer.ax)
         if enabled:
-            self._peak_artists.draw(*self._peak_labels)
+            self._peak_artists.draw(
+                self._fft_source.peaks, self._freq_formatter(self._fft_source)
+            )
         else:
             self._peak_artists.clear()
         self.viewer.canvas.draw_idle()
 
-    def attach_peak_labels(self, peaks, formatter) -> None:
-        """Carry analyzed peaks in this viewer and label them, box checked."""
-        self._peak_labels = (tuple(peaks), formatter)
-        self.viewer.control_bar_manager.set_peaks_checked(True)
-        self.on_peaks_toggled(True)
+    def attach_spectrum(self, res: FFTResult, plot_index: int) -> None:
+        """Carry the analysis in this viewer; label peaks with the box checked."""
+        self._fft_source = res
+        self._fft_plot_index = plot_index
+        if res.peaks:
+            self.viewer.control_bar_manager.set_peaks_checked(True)
+            self.on_peaks_toggled(True)
+
+    def _rescale_attached_spectrum(self) -> None:
+        """
+        Re-express the carried spectrum at the current sample rate.
+
+        Amplitudes are rate-independent; only the frequency axis and the
+        per-root-hertz density scale, so the displayed spectrum, the field
+        arrays, the peaks, the view, and the labels are rebuilt in place
+        rather than recomputed from a record this window does not hold.
+        """
+        res = self._fft_source
+        if res is None:
+            return
+        rate = self.viewer.sample_rate_hz
+        new_fs = rate / res.dx if rate else 1.0 / res.dx
+        factor = new_fs / res.spectrum.samplerate
+        if factor == 1.0:
+            return
+
+        unit = "Hz" if rate else "cyc/x"
+        res = replace(
+            res,
+            spectrum=replace(res.spectrum, samplerate=new_fs),
+            peaks=tuple(
+                replace(peak, frequency=peak.frequency * factor)
+                for peak in res.peaks
+            ),
+            floor=replace(
+                res.floor, asd_median=res.floor.asd_median / math.sqrt(factor)
+            ),
+            samplerate=new_fs,
+            frequency_unit=unit,
+        )
+        self._fft_source = res
+        spec = res.spectrum
+
+        plot = self.viewer.plot_manager.plots[self._fft_plot_index]
+        plot.points = np.column_stack((spec.frequencies, spec.db)).astype(
+            np.float32
+        )
+        array_index = self.viewer.array_field_integration.array_index_for_plot(
+            self._fft_plot_index
+        )
+        data = self.viewer.array_field_integration.array_field_manager.get_array_info(
+            array_index
+        )["data"]
+        data["frequency"] = spec.frequencies
+        data["asd"] = spec.asd
+
+        color = "white" if self.viewer.dark_mode else "black"
+        self.viewer.ax.set_xlabel(f"frequency [{unit}]", color=color)
+
+        bounds = self.viewer.view_manager.get_current_bounds()
+        self.viewer.set_view(
+            (bounds.xlim[0] * factor, bounds.xlim[1] * factor), bounds.ylim
+        )
+
+        if self._peak_artists is not None:
+            self._peak_artists.clear()
+        peaks_chk = self.viewer.control_bar_manager.get_widget("peaks_chk")
+        if res.peaks and peaks_chk.isChecked():
+            self.on_peaks_toggled(True)
+
+        fmt = self._freq_formatter(res)
+        print(f"[INFO] frequency axis rescaled to {unit}")
+        for rank, peak in enumerate(res.peaks, start=1):
+            print(f"[INFO]   peak {rank}:  {fmt(peak.frequency)}, {peak.db:+.1f} dB")
+        self.viewer.canvas.draw_idle()
 
     def _open_spectrum_window(self, name: str, res: FFTResult) -> None:
         from .Plot2D import Plot2D   # deferred: Plot2D imports this module
@@ -611,10 +697,13 @@ class PlotEventHandlers:
         color = "white" if window.dark_mode else "black"
         window.ax.set_xlabel(f"frequency [{res.frequency_unit}]", color=color)
         window.ax.set_ylabel("amplitude [dB]", color=color)
-        if res.peaks:
-            window.event_handlers.attach_peak_labels(
-                res.peaks, self._freq_formatter(res)
-            )
+        window.event_handlers.attach_spectrum(
+            res, window.plot_manager.get_plot_count() - 1
+        )
+        window.control_bar_manager.set_sample_rate_display(
+            self.viewer.sample_rate_hz
+        )
+        window.sample_rate_hz = self.viewer.sample_rate_hz
         window.show()
         window.raise_()
         window.activateWindow()

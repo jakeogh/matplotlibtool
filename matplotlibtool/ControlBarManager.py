@@ -973,6 +973,29 @@ class ControlBarManager:
         btn.setChecked(checked)
         btn.blockSignals(False)
 
+    def set_sample_rate_display(self, rate_hz: float | None) -> None:
+        """Mirror a sample rate into the Rate widgets without emitting."""
+        rate_edit = self.widgets["rate_edit"]
+        unit_combo = self.widgets["rate_unit_combo"]
+        rate_edit.blockSignals(True)
+        unit_combo.blockSignals(True)
+        if not rate_hz:
+            rate_edit.setText("")
+        else:
+            for unit, multiplier in (
+                ("GSPS", 1e9),
+                ("MSPS", 1e6),
+                ("kSPS", 1e3),
+                ("SPS", 1.0),
+            ):
+                value = rate_hz / multiplier
+                if value == int(value):
+                    unit_combo.setCurrentText(unit)
+                    rate_edit.setText(str(int(value)))
+                    break
+        rate_edit.blockSignals(False)
+        unit_combo.blockSignals(False)
+
     def set_peaks_checked(self, checked: bool):
         """Set peaks checkbox state without emitting the toggle signal."""
         chk = self.widgets["peaks_chk"]
