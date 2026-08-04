@@ -335,6 +335,7 @@ class Plot2D(QMainWindow):
 
         self.view_manager.apply(bounds)
         self._update_plot()
+        self.sync_auto_point_size()
         self.canvas.draw_idle()
         if record:
             self.view_history.record(bounds, self.display_space, coalesce)
@@ -435,6 +436,7 @@ class Plot2D(QMainWindow):
         )
         self.view_manager.apply(bounds)
         self._update_plot()
+        self.sync_auto_point_size()
         self.canvas.draw_idle()
 
     def fit_view(
@@ -609,6 +611,21 @@ class Plot2D(QMainWindow):
         self.control_bar_integration.sync_controls_to_selection()
 
         return processed.transform_params
+
+    def sync_auto_point_size(self) -> None:
+        """
+        Mirror an auto-sized plot's current size back into the spinbox.
+
+        The renderer sets the size from what it drew, so the value only exists
+        after a render; this reflects it so the field shows the size in use.
+        """
+        index = self.plot_manager.selected_plot_index
+        plots = self.plot_manager.plots
+        if index is None or not (0 <= index < len(plots)):
+            return
+        plot = plots[index]
+        if plot.auto_size:
+            self.control_bar_manager.set_point_size(plot.size)
 
     def _update_plot(self):
         """Re-render all plots at the current view bounds."""

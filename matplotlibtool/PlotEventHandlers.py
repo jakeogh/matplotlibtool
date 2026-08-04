@@ -130,6 +130,13 @@ class PlotEventHandlers:
     def on_point_size_changed(self, value: float) -> None:
         self._set_selected_property("size", value)
 
+    def on_auto_size_toggled(self, checked: bool) -> None:
+        self._set_selected_property("auto_size", checked)
+        self.viewer.control_bar_manager.widgets["size_spin"].setEnabled(not checked)
+        self.viewer._update_plot()
+        self.viewer.sync_auto_point_size()
+        self.viewer.canvas.draw_idle()
+
     def on_line_width_changed(self, value: float) -> None:
         self._set_selected_property("line_width", value)
 

@@ -21,6 +21,24 @@ from matplotlib.colors import to_rgba
 from .Plot2DOverlay import Overlay
 
 
+# Markers are sized against the spacing between the points actually drawn, so a
+# dense view gets specks and a zoomed-in one gets dots that can be aimed at. The
+# scatter size is an area in points squared, hence the square of the diameter.
+AUTO_FILL = 0.8         # fraction of the inter-point spacing a marker occupies
+AUTO_SIZE_MIN = 0.2
+AUTO_SIZE_MAX = 144.0   # 12 point diameter
+
+
+def auto_point_size(ax, drawn_count: int) -> float:
+    """Marker area for the given number of drawn points across the axes."""
+    if drawn_count <= 0:
+        return AUTO_SIZE_MIN
+    width_px = ax.get_window_extent().width
+    width_pt = width_px * 72.0 / ax.get_figure().dpi
+    diameter_pt = (width_pt / drawn_count) * AUTO_FILL
+    return float(np.clip(diameter_pt * diameter_pt, AUTO_SIZE_MIN, AUTO_SIZE_MAX))
+
+
 class Matplotlib2DRenderer:
     def __init__(self):
         self.plot_initialized = False
@@ -86,6 +104,9 @@ class Matplotlib2DRenderer:
             if idx.size > max_display_points:
                 step = -(-idx.size // max_display_points)  # ceil div
                 idx = idx[::step]
+
+            if plot.auto_size:
+                plot.size = auto_point_size(ax, idx.size)
 
             display_points = points[idx]
 

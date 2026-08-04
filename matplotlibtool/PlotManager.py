@@ -22,6 +22,7 @@ from .Plot2DOverlay import Overlay
 # UI property name -> (Overlay attribute, coercion)
 _PROPERTY_MAP: dict[str, tuple[str, Any]] = {
     "size": ("size", float),
+    "auto_size": ("auto_size", bool),
     "colormap": ("cmap", str),
     "draw_lines": ("draw_lines", bool),
     "offset_x": ("offset_x", float),
@@ -337,6 +338,7 @@ class PlotManager:
         def props_of(plot: Overlay) -> dict[str, Any]:
             return {
                 "size": plot.size,
+                "auto_size": plot.auto_size,
                 "colormap": plot.cmap,
                 "draw_lines": plot.draw_lines,
                 "offset_x": plot.offset_x,

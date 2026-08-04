@@ -27,6 +27,7 @@ class Overlay:
     line_color: str | None = None  # None = use point colors
     line_width: float = 1.0
     settle_ref: float | None = None  # when set, display y = log10|y - ref|
+    auto_size: bool = False  # size follows how many points are actually drawn
 
     scatter_artist: Any = field(default=None, init=False, repr=False)
 

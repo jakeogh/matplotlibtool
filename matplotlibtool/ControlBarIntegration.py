@@ -52,6 +52,7 @@ class ControlBarIntegration:
             # Rendering controls
             "accelChanged": self.viewer.event_handlers.on_acceleration_changed,
             "sizeChanged": self.viewer.event_handlers.on_point_size_changed,
+            "autoSizeToggled": self.viewer.event_handlers.on_auto_size_toggled,
             "lineWidthChanged": self.viewer.event_handlers.on_line_width_changed,
             "linesToggled": self.viewer.event_handlers.on_lines_toggled,
             "paletteChanged": self.viewer.event_handlers.on_palette_changed,
@@ -119,6 +120,10 @@ class ControlBarIntegration:
             manager.set_point_size_mixed()
         else:
             manager.set_point_size(props["size"])
+
+        # a mixed selection leaves auto off, since the checkbox has no third
+        # state and the size field must stay editable for the manual members
+        manager.set_auto_size_checked(props["auto_size"] is True)
 
         if props.get("line_width") == "mixed":
             manager.set_line_width_mixed()

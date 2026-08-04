@@ -39,6 +39,7 @@ class ControlBarSignals(QObject):
     # Rendering controls
     accelChanged = pyqtSignal(float)
     sizeChanged = pyqtSignal(float)
+    autoSizeToggled = pyqtSignal(bool)
     lineWidthChanged = pyqtSignal(float)
     linesToggled = pyqtSignal(bool)
     paletteChanged = pyqtSignal(str)
@@ -355,6 +356,16 @@ class ControlBarManager:
         )
         layout.addWidget(size_spin)
         self.widgets["size_spin"] = size_spin
+
+        auto_size_chk = QCheckBox("Auto")
+        auto_size_chk.setToolTip(
+            "Size the markers from how many points are drawn in the current "
+            "view, so zooming in enlarges them. The size field keeps showing "
+            "the value in use."
+        )
+        auto_size_chk.toggled.connect(self.signals.autoSizeToggled.emit)
+        layout.addWidget(auto_size_chk)
+        self.widgets["auto_size_chk"] = auto_size_chk
 
         layout.addWidget(QLabel("Line Width:"))
         line_width_spin = QDoubleSpinBox()
@@ -1080,6 +1091,19 @@ class ControlBarManager:
             spin.blockSignals(True)
             spin.setValue(value)
             spin.blockSignals(False)
+
+    def set_auto_size_checked(self, checked: bool) -> None:
+        """
+        Mirror auto sizing state without emitting.
+
+        The spinbox is disabled rather than hidden so the size in use stays
+        readable while it is not editable.
+        """
+        chk = self.widgets["auto_size_chk"]
+        chk.blockSignals(True)
+        chk.setChecked(checked)
+        chk.blockSignals(False)
+        self.widgets["size_spin"].setEnabled(not checked)
 
     def set_line_width(self, width: float):
         """Set line width spinbox value."""
