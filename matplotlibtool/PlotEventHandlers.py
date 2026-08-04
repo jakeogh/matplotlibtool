@@ -13,6 +13,9 @@ import numpy as np
 from matplotlib.ticker import EngFormatter
 
 from .FFTAnalysis import FFTAnalysisError
+from .PixelAnalysis import PixelAnalysisError
+from .PixelAnalysis import analyse_pixels
+from .PixelAnalysis import format_report
 from .FFTAnalysis import FFTPeakArtists
 from .FFTAnalysis import FFTResult
 from .FFTAnalysis import OVERLAP
@@ -660,6 +663,104 @@ class PlotEventHandlers:
         for rank, peak in enumerate(res.peaks, start=1):
             print(f"[INFO]   peak {rank}:  {fmt(peak.frequency)}, {peak.db:+.1f} dB")
         self.viewer.canvas.draw_idle()
+
+    def on_pixels(self) -> None:
+        """Dwell-domain analysis of the selected plot's source array."""
+        try:
+            self._run_pixels()
+        except PixelAnalysisError as exc:
+            print(f"[INFO] {exc}")
+
+    def _run_pixels(self) -> None:
+        pm = self.viewer.plot_manager
+        if not pm.plots:
+            raise PixelAnalysisError("pixel analysis: no plots loaded")
+        selected = pm.get_selected_plots()
+        if len(selected) != 1:
+            raise PixelAnalysisError(
+                "pixel analysis: select a single plot in the Plot/Group dropdown"
+            )
+        plot_index = selected[0]
+
+        integration = self.viewer.array_field_integration
+        mapping = integration.array_field_manager.plot_to_array_field.get(plot_index)
+        if mapping is None:
+            raise PixelAnalysisError(
+                "pixel analysis: this plot has no source array, so it carries no "
+                "pixel or frame fields"
+            )
+        array_index, value_field = mapping
+        info = integration.array_field_manager.get_array_info(array_index)
+        data = info["data"]
+
+        with self.viewer.busy_manager.busy_operation("Pixel analysis"):
+            report = analyse_pixels(data, value_field=value_field)
+
+        volts = None
+        y_mgr = self.viewer.view_manager.secondary_axis_manager.y_axis_manager
+        if y_mgr.is_enabled() and y_mgr.config is not None:
+            volts = abs(y_mgr.config.scale)
+        for line in format_report(
+            report,
+            sample_rate_hz=self.viewer.sample_rate_hz,
+            volts_per_code=volts,
+        ).splitlines():
+            print(f"[INFO] {line}")
+
+        self._open_profile_window(report, volts)
+
+    def _open_profile_window(self, report, volts_per_code: float | None) -> None:
+        from .Plot2D import Plot2D   # deferred: Plot2D imports this module
+
+        p = report.profile
+        scale = volts_per_code if volts_per_code else 1.0
+        n = len(p.residual)
+        arr = np.zeros(
+            n,
+            dtype=[
+                ("index", np.float64),
+                ("residual", np.float64),
+                ("transient", np.float64),
+                ("lag_gain_pct", np.float64),
+            ],
+        )
+        arr["index"] = np.arange(n)
+        arr["residual"] = p.residual * scale
+        arr["transient"] = p.transient * scale
+        gains = np.full(n, np.nan)
+        gains[: len(report.crosstalk.start)] = report.crosstalk.lag_gain * 100.0
+        arr["lag_gain_pct"] = gains
+
+        window = Plot2D(
+            auto_aspect=True,
+            dark_mode=self.viewer.dark_mode,
+            embedded=True,
+        )
+        window.add_plot(
+            arr,
+            x_field="index",
+            y_field="residual",
+            draw_lines=True,
+            plot_name=f"{report.value_field} settling profile",
+        )
+        window.setWindowTitle(
+            f"Pixels: {report.value_field}  "
+            f"start {report.recommended_start} length {report.recommended_length}"
+        )
+        color = "white" if window.dark_mode else "black"
+        window.ax.set_xlabel("index within dwell", color=color)
+        unit = "V" if volts_per_code else "codes"
+        window.ax.set_ylabel(f"median |residual| [{unit}]", color=color)
+        window.control_bar_manager.set_sample_rate_display(self.viewer.sample_rate_hz)
+        window.sample_rate_hz = self.viewer.sample_rate_hz
+        window.show()
+        window.raise_()
+        window.activateWindow()
+        self._fft_windows.append(window)
+        print(
+            f"[INFO] Profile window opened: Pixels: {report.value_field} "
+            f"({n} indices)"
+        )
 
     def _open_spectrum_window(self, name: str, res: FFTResult) -> None:
         from .Plot2D import Plot2D   # deferred: Plot2D imports this module

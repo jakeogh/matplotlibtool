@@ -55,6 +55,7 @@ class ControlBarSignals(QObject):
     settleToggled = pyqtSignal(bool)
     analyzeToggled = pyqtSignal(bool)
     fftRequested = pyqtSignal()
+    pixelsRequested = pyqtSignal()
     peaksToggled = pyqtSignal(bool)
     saveDataRequested = pyqtSignal()
 
@@ -610,6 +611,20 @@ class ControlBarManager:
         fft_btn.clicked.connect(self.signals.fftRequested.emit)
         layout.addWidget(fft_btn)
         self.widgets["fft_btn"] = fft_btn
+
+        pixels_btn = QPushButton("Pixels")
+        pixels_btn.setMaximumWidth(60)
+        pixels_btn.setToolTip(
+            "Dwell-domain analysis of the selected plot's source array: dwell "
+            "geometry, the settling profile pooled over every dwell, the leak "
+            "from the preceding pixel against candidate window starts, and the "
+            "split of frame-to-frame change into a per-pixel ramp and random "
+            "noise. Requires pixel and frame fields. Opens the profile in a "
+            "new window."
+        )
+        pixels_btn.clicked.connect(self.signals.pixelsRequested.emit)
+        layout.addWidget(pixels_btn)
+        self.widgets["pixels_btn"] = pixels_btn
 
         peaks_chk = QCheckBox("Peaks")
         peaks_chk.setToolTip(
