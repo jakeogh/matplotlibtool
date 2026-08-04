@@ -64,6 +64,7 @@ class ControlBarIntegration:
             "analyzeToggled": self.viewer.event_handlers.on_analyze_toggled,
             "fftRequested": self.viewer.event_handlers.on_fft,
             "pixelsRequested": self.viewer.event_handlers.on_pixels,
+            "pixelDcToggled": self.viewer.event_handlers.on_pixel_dc_toggled,
             "peaksToggled": self.viewer.event_handlers.on_peaks_toggled,
             "saveDataRequested": self.viewer.event_handlers.on_save_data,
             # Grid controls

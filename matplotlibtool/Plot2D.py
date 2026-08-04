@@ -666,6 +666,7 @@ class Plot2D(QMainWindow):
         )
 
         self.sync_auto_point_size()
+        self.event_handlers.update_pixel_dc(current_bounds.xlim)
 
         self.grid_manager.update_grid(
             axes_grid_enabled=True,

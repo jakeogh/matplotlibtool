@@ -16,6 +16,7 @@ from .FFTAnalysis import FFTAnalysisError
 from .PixelAnalysis import PixelAnalysisError
 from .PixelAnalysis import analyse_pixels
 from .PixelAnalysis import format_report
+from .PixelDCOverlay import PixelDCOverlay
 from .FFTAnalysis import FFTPeakArtists
 from .FFTAnalysis import FFTResult
 from .FFTAnalysis import OVERLAP
@@ -44,6 +45,8 @@ class PlotEventHandlers:
         self._settle_artists = None
         self._ref_annotation = None
         self._last_analysis = None   # (plot_index, SettleSegments)
+        self._pixel_dc: PixelDCOverlay | None = None
+        self._pixel_dc_plot: int | None = None
         self._fft_windows: list = []
         self._peak_artists = None
         self._fft_source = None      # FFTResult carried by a spectrum window
@@ -670,14 +673,50 @@ class PlotEventHandlers:
             print(f"[INFO]   peak {rank}:  {fmt(peak.frequency)}, {peak.db:+.1f} dB")
         self.viewer.canvas.draw_idle()
 
-    def on_pixels(self) -> None:
-        """Dwell-domain analysis of the selected plot's source array."""
+    def on_pixel_dc_toggled(self, checked: bool) -> None:
+        """Overlay the value the averager would report for each pixel."""
         try:
-            self._run_pixels()
+            self._apply_pixel_dc(checked)
         except PixelAnalysisError as exc:
             print(f"[INFO] {exc}")
+            self._apply_pixel_dc(False)
+            self.viewer.control_bar_manager.set_pixel_dc_checked(False)
 
-    def _run_pixels(self) -> None:
+    def _apply_pixel_dc(self, enabled: bool) -> None:
+        if not enabled:
+            if self._pixel_dc is not None:
+                self._pixel_dc.clear()
+            self._pixel_dc = None
+            self._pixel_dc_plot = None
+            self.viewer._update_plot()
+            self.viewer.canvas.draw_idle()
+            return
+
+        plot_index, value_field, data = self._selected_source_array()
+        overlay = PixelDCOverlay(self.viewer.ax)
+        with self.viewer.busy_manager.busy_operation("Pixel DC"):
+            overlay.compute(data, value_field=value_field)
+        self._pixel_dc = overlay
+        self._pixel_dc_plot = plot_index
+        print(
+            f"[INFO] Pixel DC: window start {overlay.start} length "
+            f"{overlay.length} of {overlay.dwell_length} records, "
+            f"{len(overlay._dc):,} dwells"
+        )
+        self.viewer._update_plot()
+        self.viewer.canvas.draw_idle()
+
+    def update_pixel_dc(self, xlim: tuple[float, float]) -> None:
+        """Re-cull the DC segments to the view; called from the render."""
+        if self._pixel_dc is None or self._pixel_dc_plot is None:
+            return
+        plots = self.viewer.plot_manager.plots
+        if not (0 <= self._pixel_dc_plot < len(plots)):
+            return
+        self._pixel_dc.update(xlim, plots[self._pixel_dc_plot])
+
+    def _selected_source_array(self):
+        """Plot index, its field name and the structured array behind it."""
         pm = self.viewer.plot_manager
         if not pm.plots:
             raise PixelAnalysisError("pixel analysis: no plots loaded")
@@ -687,7 +726,6 @@ class PlotEventHandlers:
                 "pixel analysis: select a single plot in the Plot/Group dropdown"
             )
         plot_index = selected[0]
-
         integration = self.viewer.array_field_integration
         mapping = integration.array_field_manager.plot_to_array_field.get(plot_index)
         if mapping is None:
@@ -697,7 +735,17 @@ class PlotEventHandlers:
             )
         array_index, value_field = mapping
         info = integration.array_field_manager.get_array_info(array_index)
-        data = info["data"]
+        return plot_index, value_field, info["data"]
+
+    def on_pixels(self) -> None:
+        """Dwell-domain analysis of the selected plot's source array."""
+        try:
+            self._run_pixels()
+        except PixelAnalysisError as exc:
+            print(f"[INFO] {exc}")
+
+    def _run_pixels(self) -> None:
+        _, value_field, data = self._selected_source_array()
 
         with self.viewer.busy_manager.busy_operation("Pixel analysis"):
             report = analyse_pixels(data, value_field=value_field)

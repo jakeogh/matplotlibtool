@@ -57,6 +57,7 @@ class ControlBarSignals(QObject):
     analyzeToggled = pyqtSignal(bool)
     fftRequested = pyqtSignal()
     pixelsRequested = pyqtSignal()
+    pixelDcToggled = pyqtSignal(bool)
     peaksToggled = pyqtSignal(bool)
     saveDataRequested = pyqtSignal()
 
@@ -724,6 +725,16 @@ class ControlBarManager:
         layout.addWidget(pixels_btn)
         self.widgets["pixels_btn"] = pixels_btn
 
+        pixel_dc_chk = QCheckBox("DC")
+        pixel_dc_chk.setToolTip(
+            "Draw the value the averager would report for each pixel as a "
+            "horizontal line across that pixel's dwell, using the window "
+            "measured from the capture."
+        )
+        pixel_dc_chk.toggled.connect(self.signals.pixelDcToggled.emit)
+        layout.addWidget(pixel_dc_chk)
+        self.widgets["pixel_dc_chk"] = pixel_dc_chk
+
         peaks_chk = QCheckBox("Peaks")
         peaks_chk.setToolTip(
             "Label the analyzed peaks of this spectrum with their frequency. "
@@ -1027,6 +1038,13 @@ class ControlBarManager:
     def set_peaks_checked(self, checked: bool):
         """Set peaks checkbox state without emitting the toggle signal."""
         chk = self.widgets["peaks_chk"]
+        chk.blockSignals(True)
+        chk.setChecked(checked)
+        chk.blockSignals(False)
+
+    def set_pixel_dc_checked(self, checked: bool) -> None:
+        """Set the pixel DC checkbox without emitting."""
+        chk = self.widgets["pixel_dc_chk"]
         chk.blockSignals(True)
         chk.setChecked(checked)
         chk.blockSignals(False)
