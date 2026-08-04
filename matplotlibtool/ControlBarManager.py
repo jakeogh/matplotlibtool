@@ -54,6 +54,7 @@ class ControlBarSignals(QObject):
     sampleRateChanged = pyqtSignal(float)
     settleToggled = pyqtSignal(bool)
     analyzeToggled = pyqtSignal(bool)
+    fftRequested = pyqtSignal()
     saveDataRequested = pyqtSignal()
 
     # View controls
@@ -594,6 +595,20 @@ class ControlBarManager:
         analyze_btn.toggled.connect(self.signals.analyzeToggled.emit)
         layout.addWidget(analyze_btn)
         self.widgets["analyze_btn"] = analyze_btn
+
+        fft_btn = QPushButton("FFT")
+        fft_btn.setMaximumWidth(50)
+        fft_btn.setToolTip(
+            "Open the spectrum of the selected plot's in-view samples in a new "
+            "window. The current x window is the record, so zoom to choose the "
+            "segment. The frequency axis is in Hz when Rate is set, otherwise "
+            "cycles per x-unit. Long records reduce to an averaged "
+            "Blackman-Harris power spectrum; short ones get a single "
+            "full-length transform."
+        )
+        fft_btn.clicked.connect(self.signals.fftRequested.emit)
+        layout.addWidget(fft_btn)
+        self.widgets["fft_btn"] = fft_btn
 
         back_btn = QPushButton("◀")
         back_btn.setMaximumWidth(30)

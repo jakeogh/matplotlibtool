@@ -8,7 +8,13 @@ from datetime import datetime
 from pathlib import Path
 
 import numpy as np
+from matplotlib.ticker import EngFormatter
 
+from .FFTAnalysis import FFTAnalysisError
+from .FFTAnalysis import FFTResult
+from .FFTAnalysis import OVERLAP
+from .FFTAnalysis import WINDOW
+from .FFTAnalysis import analyze_fft
 from .MouseMode import MouseMode
 from .SettleAnalysis import FLOOR_C
 from .SettleAnalysis import MIN_FIT_POINTS
@@ -32,6 +38,7 @@ class PlotEventHandlers:
         self._settle_artists = None
         self._ref_annotation = None
         self._last_analysis = None   # (plot_index, SettleSegments)
+        self._fft_windows: list = []
 
     def _should_throttle_scaling(self) -> bool:
         now = time.time() * 1000
@@ -471,6 +478,118 @@ class PlotEventHandlers:
             self._settle_artists = SettleAnalysisArtists(self.viewer.ax)
         self._settle_artists.draw(seg, self.viewer.sample_rate_hz, settle=True)
         self.viewer.canvas.draw_idle()
+
+    def on_fft(self) -> None:
+        """Open the spectrum of the selected plot's in-view samples."""
+        try:
+            self._run_fft()
+        except FFTAnalysisError as exc:
+            print(f"[INFO] {exc}")
+
+    def _run_fft(self) -> None:
+        pm = self.viewer.plot_manager
+        if not pm.plots:
+            raise FFTAnalysisError("fft: no plots loaded")
+        selected = pm.get_selected_plots()
+        if len(selected) != 1:
+            raise FFTAnalysisError(
+                "fft: select a single plot in the Plot/Group dropdown"
+            )
+        plot_index = selected[0]
+        plot = pm.plots[plot_index]
+        name = pm.get_plot_name(plot_index) or f"Plot {plot_index + 1}"
+
+        xlim = self.viewer.view_manager.get_current_bounds().xlim
+        with self.viewer.busy_manager.busy_operation("FFT"):
+            res = analyze_fft(
+                plot.points[:, 0] + plot.offset_x,
+                plot.points[:, 1] * plot.y_scale + plot.offset_y,
+                xlim,
+                self.viewer.sample_rate_hz,
+            )
+        self._report_fft(name, res)
+        self._open_spectrum_window(name, res)
+
+    def _freq_formatter(self, res: FFTResult):
+        if res.frequency_unit == "Hz":
+            eng = EngFormatter(unit="Hz", places=3)
+            return lambda value: eng(value)
+        return lambda value: f"{value:.6g} cyc/x"
+
+    def _report_fft(self, name: str, res: FFTResult) -> None:
+        spec = res.spectrum
+        fmt = self._freq_formatter(res)
+        print(f"[INFO] FFT: {name}")
+        print(
+            f"[INFO]   record:  {res.n_samples:,} samples, "
+            f"x {res.x0:.6g} .. {res.x1:.6g}, spacing {res.dx:.6g}"
+        )
+        if spec.averages > 1:
+            print(
+                f"[INFO]   fft:     nfft {spec.nfft}, {spec.averages} x {WINDOW} "
+                f"power average @ {OVERLAP:.0%} overlap"
+            )
+        else:
+            print(f"[INFO]   fft:     nfft {spec.nfft}, single record, {WINDOW}")
+        print(
+            f"[INFO]   rbw:     {fmt(spec.binwidth)}"
+            f"  (enbw {fmt(spec.enbw_hz)})"
+        )
+        print(
+            f"[INFO]   floor:   median {res.floor.median_db:+.1f} dB, "
+            f"asd {res.floor.asd_median:.3g} y/\u221a{res.frequency_unit}, "
+            f"band rms {res.floor.rms:.6g}"
+        )
+        if not res.peaks:
+            print("[INFO]   peaks:   none above the floor + 10 dB threshold")
+        for rank, peak in enumerate(res.peaks, start=1):
+            print(
+                f"[INFO]   peak {rank}:  {fmt(peak.frequency)}, "
+                f"{peak.db:+.1f} dB (amp {peak.amplitude:.6g}, "
+                f"snr {peak.snr_db:.1f} dB)"
+            )
+
+    def _open_spectrum_window(self, name: str, res: FFTResult) -> None:
+        from .Plot2D import Plot2D   # deferred: Plot2D imports this module
+
+        spec = res.spectrum
+        arr = np.zeros(
+            len(spec),
+            dtype=[
+                ("frequency", np.float64),
+                ("db", np.float64),
+                ("amplitude", np.float64),
+                ("asd", np.float64),
+            ],
+        )
+        arr["frequency"] = spec.frequencies
+        arr["db"] = spec.db
+        arr["amplitude"] = spec.amplitude
+        arr["asd"] = spec.asd
+
+        window = Plot2D(
+            auto_aspect=True,
+            dark_mode=self.viewer.dark_mode,
+            embedded=True,
+        )
+        window.add_plot(
+            arr,
+            x_field="frequency",
+            y_field="db",
+            draw_lines=True,
+            point_size=0.5,
+            line_width=1.0,
+            plot_name=f"{name} fft",
+        )
+        window.setWindowTitle(f"FFT: {name}")
+        color = "white" if window.dark_mode else "black"
+        window.ax.set_xlabel(f"frequency [{res.frequency_unit}]", color=color)
+        window.ax.set_ylabel("amplitude [dB]", color=color)
+        window.show()
+        window.raise_()
+        window.activateWindow()
+        self._fft_windows.append(window)
+        print(f"[INFO] Spectrum window opened: FFT: {name} ({len(spec):,} bins)")
 
     def on_grid_changed(self, grid_text: str):
         with self.viewer.busy_manager.busy_operation("Updating grid"):

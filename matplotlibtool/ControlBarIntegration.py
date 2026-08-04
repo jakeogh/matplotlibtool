@@ -61,6 +61,7 @@ class ControlBarIntegration:
             "sampleRateChanged": self.viewer.event_handlers.on_sample_rate_changed,
             "settleToggled": self.viewer.event_handlers.on_settle_toggled,
             "analyzeToggled": self.viewer.event_handlers.on_analyze_toggled,
+            "fftRequested": self.viewer.event_handlers.on_fft,
             "saveDataRequested": self.viewer.event_handlers.on_save_data,
             # Grid controls
             "gridSpacingChanged": self.viewer.event_handlers.on_grid_changed,
