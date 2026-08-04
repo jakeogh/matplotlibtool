@@ -134,7 +134,6 @@ class PlotEventHandlers:
         self._set_selected_property("auto_size", checked)
         self.viewer.control_bar_manager.widgets["size_spin"].setEnabled(not checked)
         self.viewer._update_plot()
-        self.viewer.sync_auto_point_size()
         self.viewer.canvas.draw_idle()
 
     def on_line_width_changed(self, value: float) -> None:

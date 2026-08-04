@@ -335,7 +335,6 @@ class Plot2D(QMainWindow):
 
         self.view_manager.apply(bounds)
         self._update_plot()
-        self.sync_auto_point_size()
         self.canvas.draw_idle()
         if record:
             self.view_history.record(bounds, self.display_space, coalesce)
@@ -436,7 +435,6 @@ class Plot2D(QMainWindow):
         )
         self.view_manager.apply(bounds)
         self._update_plot()
-        self.sync_auto_point_size()
         self.canvas.draw_idle()
 
     def fit_view(
@@ -614,18 +612,25 @@ class Plot2D(QMainWindow):
 
     def sync_auto_point_size(self) -> None:
         """
-        Mirror an auto-sized plot's current size back into the spinbox.
+        Mirror the size the renderer chose back into the spinbox.
 
-        The renderer sets the size from what it drew, so the value only exists
-        after a render; this reflects it so the field shows the size in use.
+        Called from _update_plot so every render path reports, rather than the
+        view paths alone. The size is only meaningful for a plot the renderer
+        actually drew: a hidden plot is skipped and keeps whatever size it was
+        last given, so reporting the selection when it is hidden pins the field
+        to a stale value while the visible markers resize.
         """
-        index = self.plot_manager.selected_plot_index
         plots = self.plot_manager.plots
-        if index is None or not (0 <= index < len(plots)):
-            return
-        plot = plots[index]
-        if plot.auto_size:
-            self.control_bar_manager.set_point_size(plot.size)
+        index = self.plot_manager.selected_plot_index
+        candidates = []
+        if index is not None and 0 <= index < len(plots):
+            candidates.append(plots[index])
+        candidates.extend(p for p in plots if p is not (candidates[0] if candidates else None))
+
+        for plot in candidates:
+            if plot.auto_size and plot.visible and len(plot.points):
+                self.control_bar_manager.set_point_size(plot.size)
+                return
 
     def _update_plot(self):
         """Re-render all plots at the current view bounds."""
@@ -659,6 +664,8 @@ class Plot2D(QMainWindow):
             max_line_segments=self.max_line_segments,
             disable_antialiasing=self.disable_antialiasing,
         )
+
+        self.sync_auto_point_size()
 
         self.grid_manager.update_grid(
             axes_grid_enabled=True,
