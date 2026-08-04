@@ -30,7 +30,7 @@ import numpy as np
 
 SETTLED_TAIL_GUARD = 2      # trailing records excluded from the settled reference
 SETTLED_TAIL_SPAN = 8       # records forming the settled reference
-SETTLE_FLOOR_MULT = 1.5     # settled once the residual is this close to its floor
+SETTLE_FLOOR_MULT = 0.5     # settled once the fitted decay is this fraction of the floor
 FIT_FLOOR_MULT = 3.0        # profile fit stops this far above the noise floor
 MIN_GROUPS = 32
 MIN_FIT_POINTS = 5
@@ -58,6 +58,8 @@ class SettleProfile:
     floor: float                # per-sample sigma implied by the profile floor
     fit_lo: int
     fit_hi: int
+    fit_slope: float            # decades per sample
+    fit_intercept: float
     fit_rms: float
 
 
@@ -205,6 +207,8 @@ def _profile(matrix: np.ndarray, settled: np.ndarray) -> SettleProfile:
         floor=floor / 0.6745,                   # median |x| of a normal -> sigma
         fit_lo=fit_lo,
         fit_hi=fit_hi,
+        fit_slope=float(slope),
+        fit_intercept=float(intercept),
         fit_rms=rms,
     )
 
@@ -319,19 +323,28 @@ def analyse_pixels(
     profile = _profile(matrix, settled)
     crosstalk = _crosstalk(matrix, settled, pixel[group_starts])
 
-    # settled where the residual profile has flattened onto its own floor; the
-    # profile is measured against a reference of its own, so unlike the
-    # crosstalk terms it stays meaningful across the whole dwell
+    # settled where the fitted decay reaches a fraction of the noise floor.
+    # Extrapolating the fit rather than reading the first index under a
+    # threshold matters: the profile approaches its floor asymptotically, so a
+    # crossing index there is decided by noise on an almost flat curve and
+    # moves by several samples between subsets of the same capture, while the
+    # fit uses every point of the decay and does not.
     tail = profile.residual[-(SETTLED_TAIL_GUARD + SETTLED_TAIL_SPAN) : -SETTLED_TAIL_GUARD]
     flat = float(np.median(tail))
-    reached = np.flatnonzero(profile.residual <= flat * settle_floor_mult)
-    if reached.size == 0:
+    crossing = (
+        np.log10(flat * settle_floor_mult) - profile.fit_intercept
+    ) / profile.fit_slope
+    if not np.isfinite(crossing) or crossing < 0:
         raise PixelAnalysisError(
-            f"pixel analysis: the residual never falls to {settle_floor_mult:.2f}x "
-            f"its floor within the dwell; the pixel does not settle in "
-            f"{geometry.modal_length} records"
+            "pixel analysis: the fitted decay does not reach the noise floor"
         )
-    recommended_start = int(reached[0])
+    recommended_start = int(np.ceil(crossing))
+    if recommended_start >= geometry.modal_length - SETTLED_TAIL_GUARD:
+        raise PixelAnalysisError(
+            f"pixel analysis: settling reaches {settle_floor_mult:.2f}x the noise "
+            f"floor only at index {recommended_start}, beyond the "
+            f"{geometry.modal_length} record dwell"
+        )
     recommended_length = geometry.modal_length - SETTLED_TAIL_GUARD - recommended_start
 
     frames = None
