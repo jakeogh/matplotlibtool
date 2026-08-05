@@ -83,10 +83,18 @@ class Matplotlib2DRenderer:
         colored_arrays: list[np.ndarray] = []
         colored_cmap: str | None = None
 
+        # first pass: cull and subsample every visible plot, so the marker size
+        # can come from the union of what is actually drawn. Overlaid plots
+        # sized independently diverge as soon as one is mostly outside the
+        # view; the spacing the markers are sized against is the spacing of
+        # every drawn point, not one plot's share of it.
+        prepared: list[tuple[Overlay, tuple[float, float] | None, np.ndarray, np.ndarray] | None] = []
+        total_drawn = 0
         for plot, color_range in zip(plots, color_ranges):
             if not plot.visible or len(plot.points) == 0:
                 if plot.scatter_artist is not None:
                     plot.scatter_artist.set_visible(False)
+                prepared.append(None)
                 continue
 
             points = plot.display_points()
@@ -99,14 +107,25 @@ class Matplotlib2DRenderer:
             if idx.size == 0:
                 if plot.scatter_artist is not None:
                     plot.scatter_artist.set_visible(False)
+                prepared.append(None)
                 continue
 
             if idx.size > max_display_points:
                 step = -(-idx.size // max_display_points)  # ceil div
                 idx = idx[::step]
 
+            prepared.append((plot, color_range, points, idx))
+            total_drawn += idx.size
+
+        shared_size = auto_point_size(ax, total_drawn)
+
+        for entry in prepared:
+            if entry is None:
+                continue
+            plot, color_range, points, idx = entry
+
             if plot.auto_size:
-                plot.size = auto_point_size(ax, idx.size)
+                plot.size = shared_size
 
             display_points = points[idx]
 

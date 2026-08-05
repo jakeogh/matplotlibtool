@@ -2,12 +2,14 @@
 # tab-width:4
 
 """
-PixelDCOverlay - the value the averager would report, drawn across its dwell.
+PixelDCOverlay - the value the averager would report, drawn across its window.
 
-One horizontal segment per pixel dwell, spanning the dwell and sitting at the
-mean of the averaging window. It answers the question the settle analysis
-raises but cannot show: whether the window that was measured actually lands on
-the level a human would call the pixel value.
+One horizontal segment per pixel dwell, spanning exactly the averaged records
+and sitting at their mean. The segment's left edge is on the first sample of
+the averaging window and its right edge on the last, so which samples produced
+the value is readable straight off the plot. It answers the question the
+settle analysis raises but cannot show: whether the window that was measured
+actually lands on the level a human would call the pixel value.
 
 The levels are computed once when the overlay is enabled and re-culled to the
 view on every render, so a capture with more dwells than the screen has pixels
@@ -112,8 +114,10 @@ class PixelDCOverlay:
         csum = np.concatenate(([0.0], np.cumsum(value)))
         stop = e if length is None else s + start + length
         self._dc = (csum[stop] - csum[s + start]) / (stop - s - start)
-        self._x0 = s.astype(np.float64)
-        self._x1 = (e - 1).astype(np.float64)
+        # the segment covers exactly the averaged records: left edge on the
+        # first sample in the window, right edge on the last
+        self._x0 = (s + start).astype(np.float64)
+        self._x1 = (stop - 1).astype(np.float64)
 
     def update(self, xlim: tuple[float, float], plot) -> None:
         """Redraw the segments that fall inside xlim, in the plot's display space."""
