@@ -850,7 +850,8 @@ class PlotEventHandlers:
         ).splitlines():
             print(f"[INFO] {line}")
 
-        self._open_profile_window(report, volts)
+        if report.profile is not None:
+            self._open_profile_window(report, volts)
 
     def _open_profile_window(self, report, volts_per_code: float | None) -> None:
         from .Plot2D import Plot2D   # deferred: Plot2D imports this module

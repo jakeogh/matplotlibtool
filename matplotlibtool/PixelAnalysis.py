@@ -40,10 +40,11 @@ MIN_FIT_POINTS = 5
 
 # How the window was found. A well formed capture always yields a window; the
 # verdict says whether the decay fit produced it (measured), the profile never
-# stood clear of the noise floor so every start is equally settled (flat), or
-# the residual never decays and the window is the latest the dwell can hold
-# (no decay).
-Verdict = Literal["measured", "flat", "no decay"]
+# stood clear of the noise floor so every start is equally settled (flat), the
+# residual never decays and the window is the latest the dwell can hold
+# (no decay), or the dwell has no room for a settled reference at all and the
+# window is the latest records it can hold (short).
+Verdict = Literal["measured", "flat", "no decay", "short"]
 
 
 class PixelAnalysisError(ValueError):
@@ -126,9 +127,9 @@ class FrameDecomposition:
 class PixelReport:
     value_field: str
     geometry: DwellGeometry
-    profile: SettleProfile
-    fit: SettleFit | None
-    crosstalk: CrosstalkCurve
+    profile: SettleProfile | None   # None when the dwell is too short to hold
+    fit: SettleFit | None           # a settled reference
+    crosstalk: CrosstalkCurve | None
     frames: FrameDecomposition | None
     recommended_start: int
     recommended_length: int
@@ -347,14 +348,33 @@ def analyse_pixels(
     value = data[value_field].astype(np.float64)
     group_starts = starts[usable]
     matrix = _stack(value, group_starts, geometry.modal_length)
+
+    # A well formed capture always yields a window: the operator captured it
+    # and wants a number out of it, not a refusal. The verdict says how the
+    # window was found.
+    if geometry.modal_length <= SETTLED_TAIL_GUARD + SETTLED_TAIL_SPAN + MIN_WINDOW:
+        # No room for a settled reference, so nothing about settling is
+        # measurable. Average the latest records the dwell can hold, keeping
+        # the tail guard while any sample remains before it, down to a single
+        # sample.
+        profile, fit, crosstalk = None, None, None
+        verdict: Verdict = "short"
+        settled = False
+        usable_end = max(geometry.modal_length - SETTLED_TAIL_GUARD, 1)
+        recommended_length = min(MIN_WINDOW, usable_end)
+        recommended_start = usable_end - recommended_length
+        return _finish_report(
+            data, value_field, frame_field, drop_first_frame,
+            geometry, matrix, pixel, group_starts,
+            profile, fit, crosstalk,
+            recommended_start, recommended_length, settled, verdict,
+        )
+
     settled_values = _settled(matrix)
 
     profile, verdict, fit, flat = _profile(matrix, settled_values)
     crosstalk = _crosstalk(matrix, settled_values, pixel[group_starts])
 
-    # A well formed capture always yields a window: the operator captured it
-    # and wants a number out of it, not a refusal. The verdict says how the
-    # window was found.
     latest = geometry.modal_length - SETTLED_TAIL_GUARD - MIN_WINDOW
     if verdict == "measured":
         # settled where the fitted decay reaches a fraction of the noise floor.
@@ -385,6 +405,31 @@ def analyse_pixels(
         settled = False
     recommended_length = geometry.modal_length - SETTLED_TAIL_GUARD - recommended_start
 
+    return _finish_report(
+        data, value_field, frame_field, drop_first_frame,
+        geometry, matrix, pixel, group_starts,
+        profile, fit, crosstalk,
+        recommended_start, recommended_length, settled, verdict,
+    )
+
+
+def _finish_report(
+    data: np.ndarray,
+    value_field: str,
+    frame_field: str,
+    drop_first_frame: bool,
+    geometry: DwellGeometry,
+    matrix: np.ndarray,
+    pixel: np.ndarray,
+    group_starts: np.ndarray,
+    profile: SettleProfile | None,
+    fit: SettleFit | None,
+    crosstalk: CrosstalkCurve | None,
+    recommended_start: int,
+    recommended_length: int,
+    settled: bool,
+    verdict: Verdict,
+) -> PixelReport:
     frames = None
     if frame_field in data.dtype.names:
         frames = _frames(
@@ -392,7 +437,7 @@ def analyse_pixels(
             pixel[group_starts],
             data[frame_field][group_starts],
             recommended_start,
-            geometry.modal_length - SETTLED_TAIL_GUARD,
+            recommended_start + recommended_length,
             drop_first_frame,
         )
 
@@ -445,6 +490,11 @@ def format_report(
             f"{report.fit.fit_lo}..{report.fit.fit_hi}, "
             f"rms {report.fit.fit_rms:.4f} dec"
         )
+    elif report.verdict == "short":
+        out.append(
+            "  settling: the dwell is too short to hold a settled reference; "
+            "nothing about settling is measurable"
+        )
     elif report.verdict == "flat":
         out.append(
             "  settling: faster than the dwell resolves; the profile never "
@@ -452,22 +502,34 @@ def format_report(
         )
     else:
         out.append("  settling: the residual does not decay within a dwell")
-    out.append(f"            per-sample noise {v(p.floor)} rms")
-    out.append("  cost of starting the average at index k (nan once k reaches")
-    out.append("  the settled reference, where the two share samples):")
-    for st in range(0, len(c.start), 4):
+    if p is not None:
+        out.append(f"            per-sample noise {v(p.floor)} rms")
+    if c is not None:
+        out.append("  cost of starting the average at index k (nan once k reaches")
+        out.append("  the settled reference, where the two share samples):")
+        for st in range(0, len(c.start), 4):
+            out.append(
+                f"            start {c.start[st]:>2}: leak {c.lag_gain[st] * 100:>+8.4f}%   "
+                f"bias {v(c.mean_bias[st]):>13}   fixed pattern "
+                f"{v(c.bias_sigma[st]):>10}"
+            )
         out.append(
-            f"            start {c.start[st]:>2}: leak {c.lag_gain[st] * 100:>+8.4f}%   "
-            f"bias {v(c.mean_bias[st]):>13}   fixed pattern "
-            f"{v(c.bias_sigma[st]):>10}"
+            f"  window:   start {report.recommended_start}, length "
+            f"{report.recommended_length} "
+            f"(leak {c.lag_gain[report.recommended_start] * 100:+.4f}%, "
+            f"fixed pattern {v(c.bias_sigma[report.recommended_start])})"
         )
-    out.append(
-        f"  window:   start {report.recommended_start}, length "
-        f"{report.recommended_length} "
-        f"(leak {c.lag_gain[report.recommended_start] * 100:+.4f}%, "
-        f"fixed pattern {v(c.bias_sigma[report.recommended_start])})"
-    )
-    if report.verdict == "no decay":
+    else:
+        out.append(
+            f"  window:   start {report.recommended_start}, length "
+            f"{report.recommended_length}"
+        )
+    if report.verdict == "short":
+        out.append(
+            "            NOT settled: the window is the latest the dwell can "
+            "hold; lengthen the dwell to measure settling"
+        )
+    elif report.verdict == "no decay":
         out.append(
             "            NOT settled: the residual never decays; this window "
             "is the latest the dwell can hold"
@@ -493,10 +555,11 @@ def format_report(
         f"            neighbour correlation {f.neighbour_corr:+.3f}, "
         f"monotonic {f.monotonic_fraction * 100:.0f}%"
     )
-    averaged = p.floor / np.sqrt(max(report.recommended_length, 1))
-    out.append(
-        f"            averaging {report.recommended_length} samples puts the ADC "
-        f"contribution at {v(averaged)}, which is "
-        f"{f.random_sigma / max(averaged, 1e-12):.0f}x below the random term"
-    )
+    if p is not None:
+        averaged = p.floor / np.sqrt(max(report.recommended_length, 1))
+        out.append(
+            f"            averaging {report.recommended_length} samples puts the ADC "
+            f"contribution at {v(averaged)}, which is "
+            f"{f.random_sigma / max(averaged, 1e-12):.0f}x below the random term"
+        )
     return "\n".join(out)
