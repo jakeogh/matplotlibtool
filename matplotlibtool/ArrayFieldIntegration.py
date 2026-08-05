@@ -208,9 +208,23 @@ class ArrayFieldIntegration:
                 global_color_max=properties.get("global_color_max"),
             )
 
+            # a field enabled later must look like the ones already drawn, so
+            # marker sizing follows a sibling field of the same array rather
+            # than the constructor default
+            plots = self.viewer.plot_manager.plots
+            siblings = [
+                i
+                for i in self.array_field_manager.array_fields[array_index].values()
+                if i is not None and i != plot_index and 0 <= i < len(plots)
+            ]
+            if siblings:
+                sibling = plots[siblings[0]]
+                plots[plot_index].auto_size = sibling.auto_size
+                plots[plot_index].size = sibling.size
+
             multiplier = self.get_multiplier(array_index, field_name)
             if multiplier != 1.0:
-                self.viewer.plot_manager.plots[plot_index].y_scale = multiplier
+                plots[plot_index].y_scale = multiplier
 
             self.array_field_manager.register_field_plot(
                 array_index,
