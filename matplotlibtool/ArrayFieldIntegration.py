@@ -12,6 +12,7 @@ Overlay.y_scale, so neither operation rebuilds plot data.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -122,6 +123,31 @@ class ArrayFieldIntegration:
         self.viewer.canvas.draw_idle()
         self.viewer.control_bar_integration.refresh_plot_selector()
         self.panel.update_button_label()
+
+    def set_visible_fields(
+        self,
+        array_index: int,
+        fields: Iterable[str],
+    ) -> None:
+        """
+        Show exactly these fields of the array, hiding every other mapped field.
+
+        Fields not yet plotted are created lazily, the same as enabling them
+        one at a time in the Fields panel.
+        """
+        wanted = tuple(fields)
+        available = self.array_field_manager.get_array_fields(array_index)
+        unknown = [f for f in wanted if f not in available]
+        if unknown:
+            raise KeyError(
+                f"array {array_index} has no fields {unknown}, has {available}"
+            )
+        for field in available:
+            visible = self.is_field_visible(array_index, field)
+            if field in wanted and not visible:
+                self.set_field_enabled(array_index, field, True)
+            elif field not in wanted and visible:
+                self.set_field_enabled(array_index, field, False)
 
     def set_multiplier(
         self,
@@ -240,3 +266,6 @@ class ArrayFieldIntegration:
                     self.viewer.plot_manager.plot_to_group[plot_index] = group_id
 
             print(f"[INFO] Added field plot: {field_name} (plot index {plot_index})")
+
+        # creation emits no visibility signal, so the DC overlays reconcile here
+        self.viewer.event_handlers.refresh_pixel_dc()

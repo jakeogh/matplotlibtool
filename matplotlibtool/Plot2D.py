@@ -18,6 +18,7 @@ from __future__ import annotations
 
 # pylint: disable=no-name-in-module
 import sys
+from collections.abc import Iterable
 from pathlib import Path
 from time import time
 
@@ -602,7 +603,7 @@ class Plot2D(QMainWindow):
         if len(self.plot_manager.plots) == 1 and not self._custom_bounds_provided:
             self.fit_view()
 
-        self.event_handlers.try_default_pixel_dc()
+        self.event_handlers.refresh_pixel_dc()
         self._update_plot()
         self.canvas.draw_idle()
 
@@ -620,6 +621,12 @@ class Plot2D(QMainWindow):
         window in force.
         """
         self.event_handlers.set_pixel_dc_window(start, length)
+
+    def set_visible_fields(
+        self, fields: Iterable[str], *, array_index: int = 0
+    ) -> None:
+        """Show exactly these fields of the array, hiding the rest."""
+        self.array_field_integration.set_visible_fields(array_index, fields)
 
     def sync_auto_point_size(self) -> None:
         """
@@ -741,6 +748,7 @@ class Plot2D(QMainWindow):
         self.canvas.draw_idle()
 
     def _on_plot_visibility_changed(self, plot_index: int, visible: bool):
+        self.event_handlers.refresh_pixel_dc()
         self._update_plot()
         self.canvas.draw_idle()
 

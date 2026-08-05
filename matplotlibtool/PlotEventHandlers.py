@@ -45,8 +45,7 @@ class PlotEventHandlers:
         self._settle_artists = None
         self._ref_annotation = None
         self._last_analysis = None   # (plot_index, SettleSegments)
-        self._pixel_dc: PixelDCOverlay | None = None
-        self._pixel_dc_plot: int | None = None
+        self._pixel_dc: dict[int, PixelDCOverlay] = {}
         self._pixel_dc_window: tuple[int | None, int | None] = (None, None)
         self._fft_windows: list = []
         self._peak_artists = None
@@ -685,50 +684,101 @@ class PlotEventHandlers:
             self.viewer.control_bar_manager.set_pixel_dc_checked(False)
 
     def _apply_pixel_dc(self, enabled: bool) -> None:
-        if not enabled:
-            if self._pixel_dc is not None:
-                self._pixel_dc.clear()
-            self._pixel_dc = None
-            self._pixel_dc_plot = None
-            self.viewer._update_plot()
-            self.viewer.canvas.draw_idle()
-            return
-
-        plot_index, value_field, data = self._selected_source_array()
-        start, length = self._pixel_dc_window
-        overlay = PixelDCOverlay(self.viewer.ax)
-        with self.viewer.busy_manager.busy_operation("Pixel DC"):
-            overlay.compute(data, value_field=value_field, start=start, length=length)
-        self._pixel_dc = overlay
-        self._pixel_dc_plot = plot_index
-        source = "measured" if overlay.measured else "set"
-        print(
-            f"[INFO] Pixel DC: window start {overlay.start} length "
-            f"{overlay.length} ({source}) of {overlay.dwell_length} records, "
-            f"{len(overlay._dc):,} dwells"
-        )
+        for overlay in self._pixel_dc.values():
+            overlay.clear()
+        self._pixel_dc = {}
+        if enabled:
+            candidates = self._pixel_dc_candidates()
+            if not candidates:
+                raise PixelAnalysisError(
+                    "pixel dc: no visible plot carries a source array with a "
+                    "pixel field"
+                )
+            start, length = self._pixel_dc_window
+            with self.viewer.busy_manager.busy_operation("Pixel DC"):
+                for plot_index, value_field, data in candidates:
+                    self._pixel_dc[plot_index] = self._computed_pixel_dc(
+                        value_field, data, start, length
+                    )
         self.viewer._update_plot()
         self.viewer.canvas.draw_idle()
 
-    def try_default_pixel_dc(self) -> None:
-        """
-        Bring the overlay up on load, since the box defaults to checked.
+    def _computed_pixel_dc(
+        self,
+        value_field: str,
+        data: np.ndarray,
+        start: int | None,
+        length: int | None,
+    ) -> PixelDCOverlay:
+        overlay = PixelDCOverlay(self.viewer.ax)
+        overlay.compute(data, value_field=value_field, start=start, length=length)
+        source = "measured" if overlay.measured else "set"
+        window = (
+            "rest of dwell" if overlay.length is None else f"length {overlay.length}"
+        )
+        settled = "" if overlay.settled else ", NOT settled"
+        print(
+            f"[INFO] Pixel DC: {value_field}: window start {overlay.start} "
+            f"{window} ({source}{settled}) of {overlay.dwell_length} records, "
+            f"{len(overlay._dc):,} dwells"
+        )
+        return overlay
 
-        Data without a pixel field cannot carry the overlay at all, so the box
-        is released rather than left checked over an empty overlay.
+    def _pixel_dc_candidates(self) -> list[tuple[int, str, np.ndarray]]:
+        """(plot index, value field, source array) for every visible plot whose
+        source array carries a pixel field."""
+        manager = self.viewer.array_field_integration.array_field_manager
+        plots = self.viewer.plot_manager.plots
+        candidates = []
+        for plot_index, (array_index, field) in sorted(
+            manager.plot_to_array_field.items()
+        ):
+            if not plots[plot_index].visible:
+                continue
+            data = manager.get_array_info(array_index)["data"]
+            if data.dtype.names is None or "pixel" not in data.dtype.names:
+                continue
+            candidates.append((plot_index, field, data))
+        return candidates
+
+    def refresh_pixel_dc(self) -> None:
         """
-        chk = self.viewer.control_bar_manager.get_widget("pixel_dc_chk")
-        if not chk.isChecked() or self._pixel_dc is not None:
+        Reconcile the overlays with the plots now visible, if the box is checked.
+
+        Overlays whose plot left the view are dropped and newly visible plots
+        get theirs computed; plots already carrying one keep it. Data without a
+        pixel field cannot carry the overlay at all, so the box is released
+        rather than left checked over an empty overlay. Callers render.
+        """
+        if not self.viewer.control_bar_manager.get_widget("pixel_dc_chk").isChecked():
             return
         try:
-            self._apply_pixel_dc(True)
+            self._reconcile_pixel_dc()
         except PixelAnalysisError as exc:
             print(f"[INFO] {exc}")
             self._apply_pixel_dc(False)
             self.viewer.control_bar_manager.set_pixel_dc_checked(False)
 
+    def _reconcile_pixel_dc(self) -> None:
+        candidates = self._pixel_dc_candidates()
+        visible = {plot_index for plot_index, _, _ in candidates}
+        for plot_index in [i for i in self._pixel_dc if i not in visible]:
+            self._pixel_dc.pop(plot_index).clear()
+        missing = [c for c in candidates if c[0] not in self._pixel_dc]
+        if missing:
+            start, length = self._pixel_dc_window
+            with self.viewer.busy_manager.busy_operation("Pixel DC"):
+                for plot_index, value_field, data in missing:
+                    self._pixel_dc[plot_index] = self._computed_pixel_dc(
+                        value_field, data, start, length
+                    )
+        if not self._pixel_dc:
+            raise PixelAnalysisError(
+                "pixel dc: no visible plot carries a source array with a pixel field"
+            )
+
     def set_pixel_dc_window(self, start: int | None, length: int | None) -> None:
-        """Adopt a new averaging window and redraw the overlay if it is showing."""
+        """Adopt a new averaging window and redraw the overlays if showing."""
         window = (start, length)
         if window == self._pixel_dc_window:
             return
@@ -738,12 +788,9 @@ class PlotEventHandlers:
 
     def update_pixel_dc(self, xlim: tuple[float, float]) -> None:
         """Re-cull the DC segments to the view; called from the render."""
-        if self._pixel_dc is None or self._pixel_dc_plot is None:
-            return
         plots = self.viewer.plot_manager.plots
-        if not (0 <= self._pixel_dc_plot < len(plots)):
-            return
-        self._pixel_dc.update(xlim, plots[self._pixel_dc_plot])
+        for plot_index, overlay in self._pixel_dc.items():
+            overlay.update(xlim, plots[plot_index])
 
     def _selected_source_array(self):
         """Plot index, its field name and the structured array behind it."""

@@ -21,7 +21,7 @@ from matplotlib.collections import LineCollection
 
 from .PixelAnalysis import PixelAnalysisError
 from .PixelAnalysis import analyse_pixels
-from .PixelAnalysis import segment_dwells
+from .PixelAnalysis import measure_dwells
 
 DC_COLOR = "#ffffff"
 DC_COLOR_LIGHT = "#000000"
@@ -39,9 +39,10 @@ class PixelDCOverlay:
         self._x1: np.ndarray | None = None
         self._dc: np.ndarray | None = None
         self.start = 0
-        self.length = 0
+        self.length: int | None = None  # None averages the rest of each dwell
         self.dwell_length = 0
         self.measured = True
+        self.settled = True
 
     @property
     def active(self) -> bool:
@@ -64,45 +65,55 @@ class PixelDCOverlay:
         length: int | None = None,
     ) -> None:
         """
-        Average each dwell over the window, and draw what the averager writes.
+        Average each dwell the way the averager would, and draw what it writes.
 
-        start and length default to the window measured from the capture. Given
-        explicitly they are used as-is, so the overlay shows the levels the
-        operator's own window produces rather than the measured one.
+        The window semantics mirror the averaging pipeline: start None measures
+        the settled window from the capture, with length following it unless
+        given; start given with length None averages the rest of each dwell;
+        start and length given average exactly that window. The settle fit runs
+        only when the window is measured, so an operator-set window produces
+        levels on any capture, settled or not — the same as the averager.
         """
-        report = analyse_pixels(data, value_field=value_field, pixel_field=pixel_field)
-        self.dwell_length = report.geometry.modal_length
-        self.start = report.recommended_start if start is None else start
-        self.length = report.recommended_length if length is None else length
-        self.measured = start is None and length is None
-
-        if self.start < 0 or self.length < 1:
-            raise PixelAnalysisError(
-                f"pixel dc: window start {self.start} length {self.length} is empty"
-            )
-        if self.start + self.length > self.dwell_length:
-            raise PixelAnalysisError(
-                f"pixel dc: window start {self.start} length {self.length} runs "
-                f"past the {self.dwell_length} record dwell"
-            )
-
-        pixel = data[pixel_field]
-        starts, ends = segment_dwells(pixel)
-        lengths = ends - starts
-        usable = (
-            (pixel[starts] != idle_pixel)
-            & (lengths >= self.dwell_length)
-            & (lengths <= self.dwell_length + 1)
+        geometry, starts, ends, usable = measure_dwells(
+            data[pixel_field], idle_pixel=idle_pixel
         )
-        if not usable.any():
-            raise PixelAnalysisError("pixel dc: no usable dwells")
+        self.dwell_length = geometry.modal_length
+        self.measured = start is None
+
+        if start is None:
+            report = analyse_pixels(
+                data, value_field=value_field, pixel_field=pixel_field
+            )
+            self.settled = report.settled
+            start = report.recommended_start
+            if length is None:
+                length = report.recommended_length
+        else:
+            self.settled = True
+            if start < 0:
+                raise PixelAnalysisError(f"pixel dc: window start {start} is negative")
+            if length is not None and length < 1:
+                raise PixelAnalysisError(f"pixel dc: window length {length} is empty")
+
+        required = start + (length if length is not None else 1)
+        if required > self.dwell_length:
+            raise PixelAnalysisError(
+                f"pixel dc: window start {start} length "
+                f"{length if length is not None else 'rest'} needs {required} "
+                f"records of the {self.dwell_length} record dwell"
+            )
+
+        self.start = start
+        self.length = length
 
         s = starts[usable]
+        e = ends[usable]
         value = data[value_field].astype(np.float64)
-        offsets = np.arange(self.start, self.start + self.length)
-        self._dc = value[s[:, None] + offsets[None, :]].mean(axis=1)
+        csum = np.concatenate(([0.0], np.cumsum(value)))
+        stop = e if length is None else s + start + length
+        self._dc = (csum[stop] - csum[s + start]) / (stop - s - start)
         self._x0 = s.astype(np.float64)
-        self._x1 = (ends[usable] - 1).astype(np.float64)
+        self._x1 = (e - 1).astype(np.float64)
 
     def update(self, xlim: tuple[float, float], plot) -> None:
         """Redraw the segments that fall inside xlim, in the plot's display space."""

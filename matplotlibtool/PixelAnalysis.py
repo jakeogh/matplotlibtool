@@ -32,6 +32,7 @@ SETTLED_TAIL_GUARD = 2      # trailing records excluded from the settled referen
 SETTLED_TAIL_SPAN = 8       # records forming the settled reference
 SETTLE_FLOOR_MULT = 0.5     # settled once the fitted decay is this fraction of the floor
 FIT_FLOOR_MULT = 3.0        # profile fit stops this far above the noise floor
+MIN_WINDOW = 4              # records kept when the dwell is too short to settle
 MIN_GROUPS = 32
 MIN_FIT_POINTS = 5
 
@@ -115,6 +116,9 @@ class PixelReport:
     frames: FrameDecomposition | None
     recommended_start: int
     recommended_length: int
+    settled: bool               # False when the dwell ends before the residual
+                                # reaches the floor; the window is then the
+                                # latest the dwell can hold
 
 
 def segment_dwells(pixel: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -125,12 +129,13 @@ def segment_dwells(pixel: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     return starts, ends
 
 
-def _geometry(
+def measure_dwells(
     pixel: np.ndarray,
-    starts: np.ndarray,
-    ends: np.ndarray,
-    idle_pixel: int,
-) -> tuple[DwellGeometry, np.ndarray]:
+    *,
+    idle_pixel: int = 0,
+) -> tuple[DwellGeometry, np.ndarray, np.ndarray, np.ndarray]:
+    """Dwell geometry plus (starts, ends, usable) for every dwell."""
+    starts, ends = segment_dwells(pixel)
     lengths = ends - starts
     px = pixel[starts]
     counts = dict(zip(*np.unique(lengths[px != idle_pixel], return_counts=True)))
@@ -156,6 +161,8 @@ def _geometry(
             excluded_long=int(((px != idle_pixel) & (lengths > modal + 1)).sum()),
             excluded_short=int(((px != idle_pixel) & (lengths < modal)).sum()),
         ),
+        starts,
+        ends,
         usable,
     )
 
@@ -312,8 +319,7 @@ def analyse_pixels(
             raise PixelAnalysisError(f"pixel analysis: array has no {field!r} field")
 
     pixel = data[pixel_field]
-    starts, ends = segment_dwells(pixel)
-    geometry, usable = _geometry(pixel, starts, ends, idle_pixel)
+    geometry, starts, ends, usable = measure_dwells(pixel, idle_pixel=idle_pixel)
 
     value = data[value_field].astype(np.float64)
     group_starts = starts[usable]
@@ -338,13 +344,16 @@ def analyse_pixels(
         raise PixelAnalysisError(
             "pixel analysis: the fitted decay does not reach the noise floor"
         )
+    # A dwell that ends before the residual reaches the floor still has to
+    # produce a pixel value: the operator set the dwell and wants a number out
+    # of it. Report the latest window the dwell can hold and flag it as not
+    # settled, rather than refusing — the same choice the settle estimator in
+    # the averaging pipeline makes.
     recommended_start = int(np.ceil(crossing))
-    if recommended_start >= geometry.modal_length - SETTLED_TAIL_GUARD:
-        raise PixelAnalysisError(
-            f"pixel analysis: settling reaches {settle_floor_mult:.2f}x the noise "
-            f"floor only at index {recommended_start}, beyond the "
-            f"{geometry.modal_length} record dwell"
-        )
+    latest = geometry.modal_length - SETTLED_TAIL_GUARD - MIN_WINDOW
+    settled = recommended_start <= latest
+    if not settled:
+        recommended_start = latest
     recommended_length = geometry.modal_length - SETTLED_TAIL_GUARD - recommended_start
 
     frames = None
@@ -366,6 +375,7 @@ def analyse_pixels(
         frames=frames,
         recommended_start=recommended_start,
         recommended_length=recommended_length,
+        settled=settled,
     )
 
 
@@ -417,6 +427,11 @@ def format_report(
         f"(leak {c.lag_gain[report.recommended_start] * 100:+.4f}%, "
         f"fixed pattern {v(c.bias_sigma[report.recommended_start])})"
     )
+    if not report.settled:
+        out.append(
+            "            NOT settled: the dwell ends before the residual reaches "
+            "the noise floor; this window is the latest the dwell can hold"
+        )
 
     f = report.frames
     if f is None:
