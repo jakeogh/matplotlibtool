@@ -218,6 +218,21 @@ class PlotManager:
     ) -> tuple[float, float] | None:
         return self.plot_global_color_ranges.get(plot_index)
 
+    def replace_plot_points(
+        self,
+        plot_index: int,
+        points: np.ndarray,
+        color_data: np.ndarray | None,
+        color_range: tuple[float, float] | None,
+    ) -> None:
+        """Swap a plot's data in place; styling, visibility and view are untouched."""
+        plot = self.plots[plot_index]
+        plot.points = points
+        plot.color_data = color_data
+        if color_range is not None:
+            self.plot_global_color_ranges[plot_index] = color_range
+        self._invalidate_label_cache()
+
     def set_plot_name(self, plot_index: int, name: str) -> bool:
         if 0 <= plot_index < len(self.plots):
             self.plot_names[plot_index] = name

@@ -741,6 +741,18 @@ class PlotEventHandlers:
             candidates.append((plot_index, field, data))
         return candidates
 
+    def recompute_pixel_dc(self) -> bool:
+        """
+        Recompute the overlays against the current data, if the box is checked.
+
+        For callers that changed the data behind the plots. Returns True when
+        a recompute ran, which renders; the caller renders otherwise.
+        """
+        if not self.viewer.control_bar_manager.get_widget("pixel_dc_chk").isChecked():
+            return False
+        self.on_pixel_dc_toggled(True)
+        return True
+
     def refresh_pixel_dc(self) -> None:
         """
         Reconcile the overlays with the plots now visible, if the box is checked.

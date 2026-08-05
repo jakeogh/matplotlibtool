@@ -149,6 +149,56 @@ class ArrayFieldIntegration:
             elif field not in wanted and visible:
                 self.set_field_enabled(array_index, field, False)
 
+    def replace_array_data(self, array_index: int, data: np.ndarray) -> None:
+        """
+        Swap the array behind every plot of this array for a new capture.
+
+        Every mapped field plot is rebuilt from the new data through the
+        transform the array was registered with; nothing else changes, so the
+        view, selection, visibility, and styling all survive the swap. The DC
+        overlays recompute against the new data when showing.
+        """
+        manager = self.array_field_manager
+        info = manager.get_array_info(array_index)
+        old_names = set(info["data"].dtype.names)
+        new_names = set(data.dtype.names or ())
+        if new_names != old_names:
+            raise ValueError(
+                f"array {array_index}: replacement fields {sorted(new_names)} "
+                f"do not match {sorted(old_names)}"
+            )
+
+        info["data"] = data
+        x = data[info["x_field"]].astype(np.float32)
+        transform_params = info["properties"]["transform_params"]
+        color_field = info["properties"].get("color_field")
+        color_data = None
+        color_range = None
+        if color_field is not None:
+            color_data = data[color_field].astype(np.float32)
+            if len(color_data):
+                color_range = (float(color_data.min()), float(color_data.max()))
+                info["properties"]["global_color_min"] = color_range[0]
+                info["properties"]["global_color_max"] = color_range[1]
+
+        for field, plot_index in manager.array_fields[array_index].items():
+            if plot_index is None:
+                continue
+            points_xy = np.column_stack((x, data[field].astype(np.float32)))
+            self.viewer.plot_manager.replace_plot_points(
+                plot_index,
+                self.viewer.transform_engine.apply_transform(
+                    points_xy, transform_params
+                ),
+                color_data,
+                color_range,
+            )
+
+        self.viewer.control_bar_integration.refresh_plot_selector()
+        if not self.viewer.event_handlers.recompute_pixel_dc():
+            self.viewer._update_plot()
+            self.viewer.canvas.draw_idle()
+
     def set_multiplier(
         self,
         array_index: int,

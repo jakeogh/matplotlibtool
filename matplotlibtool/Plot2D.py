@@ -628,6 +628,14 @@ class Plot2D(QMainWindow):
         """Show exactly these fields of the array, hiding the rest."""
         self.array_field_integration.set_visible_fields(array_index, fields)
 
+    def replace_array_data(self, data, *, array_index: int = 0) -> None:
+        """
+        Swap the array behind every plot of this array for a new capture.
+
+        The view, selection, visibility, and styling all survive the swap.
+        """
+        self.array_field_integration.replace_array_data(array_index, data)
+
     def sync_auto_point_size(self) -> None:
         """
         Mirror the size the renderer chose back into the spinbox.
