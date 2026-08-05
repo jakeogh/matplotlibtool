@@ -638,23 +638,18 @@ class Plot2D(QMainWindow):
 
     def sync_auto_point_size(self) -> None:
         """
-        Mirror the size the renderer chose back into the spinbox.
+        Mirror the renderer's auto marker size into the spinbox.
 
-        Called from _update_plot so every render path reports, rather than the
-        view paths alone. The size is only meaningful for a plot the renderer
-        actually drew: a hidden plot is skipped and keeps whatever size it was
-        last given, so reporting the selection when it is hidden pins the field
-        to a stale value while the visible markers resize.
+        Every auto-sized plot carries the same renderer-chosen size after a
+        render, drawn or not, so the first one reports it. A manually sized
+        selection keeps its own value in the field.
         """
         plots = self.plot_manager.plots
         index = self.plot_manager.selected_plot_index
-        candidates = []
-        if index is not None and 0 <= index < len(plots):
-            candidates.append(plots[index])
-        candidates.extend(p for p in plots if p is not (candidates[0] if candidates else None))
-
-        for plot in candidates:
-            if plot.auto_size and plot.visible and len(plot.points):
+        if 0 <= index < len(plots) and not plots[index].auto_size:
+            return
+        for plot in plots:
+            if plot.auto_size:
                 self.control_bar_manager.set_point_size(plot.size)
                 return
 

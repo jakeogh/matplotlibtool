@@ -21,9 +21,12 @@ from matplotlib.colors import to_rgba
 from .Plot2DOverlay import Overlay
 
 
-# Markers are sized against the spacing between the points actually drawn, so a
-# dense view gets specks and a zoomed-in one gets dots that can be aimed at. The
-# scatter size is an area in points squared, hence the square of the diameter.
+# Markers are sized against the horizontal spacing of the data in the view:
+# the axes width over the largest number of points any one plot spans across
+# it. The diameter therefore scales linearly with horizontal zoom, and does
+# not change with vertical zoom, with a channel leaving the y window, or with
+# how many overlaid plots share the same x positions. The scatter size is an
+# area in points squared, hence the square of the diameter.
 AUTO_FILL = 0.576       # fraction of the inter-point spacing a marker occupies
 AUTO_SIZE_MIN = 0.2
 AUTO_SIZE_MAX = 144.0   # 12 point diameter
@@ -83,13 +86,13 @@ class Matplotlib2DRenderer:
         colored_arrays: list[np.ndarray] = []
         colored_cmap: str | None = None
 
-        # first pass: cull and subsample every visible plot, so the marker size
-        # can come from the union of what is actually drawn. Overlaid plots
-        # sized independently diverge as soon as one is mostly outside the
-        # view; the spacing the markers are sized against is the spacing of
-        # every drawn point, not one plot's share of it.
+        # first pass: cull and subsample every visible plot. The auto marker
+        # size comes from the x extent alone, counted before the display
+        # subsample: counting the x-and-y culled or subsampled points makes
+        # the diameter jump when a channel leaves the y window or a subsample
+        # threshold is crossed, instead of scaling linearly with zoom.
         prepared: list[tuple[Overlay, tuple[float, float] | None, np.ndarray, np.ndarray] | None] = []
-        total_drawn = 0
+        max_x_count = 0
         for plot, color_range in zip(plots, color_ranges):
             if not plot.visible or len(plot.points) == 0:
                 if plot.scatter_artist is not None:
@@ -101,7 +104,9 @@ class Matplotlib2DRenderer:
 
             x = points[:, 0]
             y = points[:, 1]
-            mask = (x >= cx0) & (x <= cx1) & (y >= cy0) & (y <= cy1)
+            mask_x = (x >= cx0) & (x <= cx1)
+            max_x_count = max(max_x_count, int(mask_x.sum()))
+            mask = mask_x & (y >= cy0) & (y <= cy1)
             idx = np.flatnonzero(mask)
 
             if idx.size == 0:
@@ -115,17 +120,16 @@ class Matplotlib2DRenderer:
                 idx = idx[::step]
 
             prepared.append((plot, color_range, points, idx))
-            total_drawn += idx.size
 
-        shared_size = auto_point_size(ax, total_drawn)
+        shared_size = auto_point_size(ax, max_x_count)
+        for plot in plots:
+            if plot.auto_size:
+                plot.size = shared_size
 
         for entry in prepared:
             if entry is None:
                 continue
             plot, color_range, points, idx = entry
-
-            if plot.auto_size:
-                plot.size = shared_size
 
             display_points = points[idx]
 
