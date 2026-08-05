@@ -25,6 +25,7 @@ sets where averaging is allowed to begin.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 import numpy as np
 
@@ -32,9 +33,17 @@ SETTLED_TAIL_GUARD = 2      # trailing records excluded from the settled referen
 SETTLED_TAIL_SPAN = 8       # records forming the settled reference
 SETTLE_FLOOR_MULT = 0.5     # settled once the fitted decay is this fraction of the floor
 FIT_FLOOR_MULT = 3.0        # profile fit stops this far above the noise floor
+FIT_LO = 2                  # index 0 and 1 straddle the pixel clock edge
 MIN_WINDOW = 4              # records kept when the dwell is too short to settle
 MIN_GROUPS = 32
 MIN_FIT_POINTS = 5
+
+# How the window was found. A well formed capture always yields a window; the
+# verdict says whether the decay fit produced it (measured), the profile never
+# stood clear of the noise floor so every start is equally settled (flat), or
+# the residual never decays and the window is the latest the dwell can hold
+# (no decay).
+Verdict = Literal["measured", "flat", "no decay"]
 
 
 class PixelAnalysisError(ValueError):
@@ -55,8 +64,14 @@ class DwellGeometry:
 class SettleProfile:
     residual: np.ndarray        # median |value - settled| per within-dwell index
     transient: np.ndarray       # signed mean per index; pixel steps cancel out
-    tau: float                  # samples, from the log-residual slope
     floor: float                # per-sample sigma implied by the profile floor
+
+
+@dataclass(frozen=True)
+class SettleFit:
+    """The log-residual decay fit; present only when the profile resolves one."""
+
+    tau: float                  # samples, from the log-residual slope
     fit_lo: int
     fit_hi: int
     fit_slope: float            # decades per sample
@@ -112,13 +127,14 @@ class PixelReport:
     value_field: str
     geometry: DwellGeometry
     profile: SettleProfile
+    fit: SettleFit | None
     crosstalk: CrosstalkCurve
     frames: FrameDecomposition | None
     recommended_start: int
     recommended_length: int
-    settled: bool               # False when the dwell ends before the residual
-                                # reaches the floor; the window is then the
-                                # latest the dwell can hold
+    settled: bool               # False when the window is the latest the dwell
+                                # can hold rather than a settled one
+    verdict: Verdict
 
 
 def segment_dwells(pixel: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -183,41 +199,48 @@ def _settled(matrix: np.ndarray) -> np.ndarray:
     return matrix[:, lo:hi].mean(axis=1)
 
 
-def _profile(matrix: np.ndarray, settled: np.ndarray) -> SettleProfile:
+def _profile(
+    matrix: np.ndarray,
+    settled: np.ndarray,
+) -> tuple[SettleProfile, Verdict, SettleFit | None, float]:
+    """Settling profile plus the verdict of the decay fit over it."""
     deviation = matrix - settled[:, None]
     residual = np.median(np.abs(deviation), axis=0)
     transient = deviation.mean(axis=0)
 
     tail = residual[-(SETTLED_TAIL_GUARD + SETTLED_TAIL_SPAN) : -SETTLED_TAIL_GUARD]
-    floor = float(np.median(tail))
-    if floor <= 0.0:
-        raise PixelAnalysisError("pixel analysis: settled residual is identically zero")
-
-    above = np.flatnonzero(residual > FIT_FLOOR_MULT * floor)
-    fit_lo = 2                                  # index 0/1 straddle the clock edge
-    fit_hi = int(above[-1]) if above.size else fit_lo
-    if fit_hi - fit_lo + 1 < MIN_FIT_POINTS:
-        raise PixelAnalysisError(
-            f"pixel analysis: only {fit_hi - fit_lo + 1} indices rise above the "
-            f"noise floor, the dwell resolves no settling at this sample rate"
-        )
-    k = np.arange(fit_lo, fit_hi + 1)
-    slope, intercept = np.polyfit(k, np.log10(residual[k]), 1)
-    rms = float(np.sqrt(np.mean((np.log10(residual[k]) - (slope * k + intercept)) ** 2)))
-    if slope >= 0.0:
-        raise PixelAnalysisError("pixel analysis: residual does not decay within a dwell")
-
-    return SettleProfile(
+    flat = float(np.median(tail))
+    profile = SettleProfile(
         residual=residual,
         transient=transient,
+        floor=flat / 0.6745,                    # median |x| of a normal -> sigma
+    )
+    if flat <= 0.0:
+        # identically zero residual: constant data, settled everywhere
+        return profile, "flat", None, flat
+
+    above = np.flatnonzero(residual > FIT_FLOOR_MULT * flat)
+    fit_hi = int(above[-1]) if above.size else FIT_LO
+    if fit_hi - FIT_LO + 1 < MIN_FIT_POINTS:
+        # the profile never stands clear of the floor: settling is faster than
+        # the dwell resolves, so every start is equally settled
+        return profile, "flat", None, flat
+
+    k = np.arange(FIT_LO, fit_hi + 1)
+    slope, intercept = np.polyfit(k, np.log10(residual[k]), 1)
+    if not slope < 0.0:                         # also catches a degenerate nan fit
+        # rising residual: it never settles within a dwell
+        return profile, "no decay", None, flat
+    rms = float(np.sqrt(np.mean((np.log10(residual[k]) - (slope * k + intercept)) ** 2)))
+    fit = SettleFit(
         tau=float(np.log10(np.e) / -slope),
-        floor=floor / 0.6745,                   # median |x| of a normal -> sigma
-        fit_lo=fit_lo,
+        fit_lo=FIT_LO,
         fit_hi=fit_hi,
         fit_slope=float(slope),
         fit_intercept=float(intercept),
         fit_rms=rms,
     )
+    return profile, "measured", fit, flat
 
 
 def _crosstalk(
@@ -324,36 +347,42 @@ def analyse_pixels(
     value = data[value_field].astype(np.float64)
     group_starts = starts[usable]
     matrix = _stack(value, group_starts, geometry.modal_length)
-    settled = _settled(matrix)
+    settled_values = _settled(matrix)
 
-    profile = _profile(matrix, settled)
-    crosstalk = _crosstalk(matrix, settled, pixel[group_starts])
+    profile, verdict, fit, flat = _profile(matrix, settled_values)
+    crosstalk = _crosstalk(matrix, settled_values, pixel[group_starts])
 
-    # settled where the fitted decay reaches a fraction of the noise floor.
-    # Extrapolating the fit rather than reading the first index under a
-    # threshold matters: the profile approaches its floor asymptotically, so a
-    # crossing index there is decided by noise on an almost flat curve and
-    # moves by several samples between subsets of the same capture, while the
-    # fit uses every point of the decay and does not.
-    tail = profile.residual[-(SETTLED_TAIL_GUARD + SETTLED_TAIL_SPAN) : -SETTLED_TAIL_GUARD]
-    flat = float(np.median(tail))
-    crossing = (
-        np.log10(flat * settle_floor_mult) - profile.fit_intercept
-    ) / profile.fit_slope
-    if not np.isfinite(crossing) or crossing < 0:
-        raise PixelAnalysisError(
-            "pixel analysis: the fitted decay does not reach the noise floor"
-        )
-    # A dwell that ends before the residual reaches the floor still has to
-    # produce a pixel value: the operator set the dwell and wants a number out
-    # of it. Report the latest window the dwell can hold and flag it as not
-    # settled, rather than refusing — the same choice the settle estimator in
-    # the averaging pipeline makes.
-    recommended_start = int(np.ceil(crossing))
+    # A well formed capture always yields a window: the operator captured it
+    # and wants a number out of it, not a refusal. The verdict says how the
+    # window was found.
     latest = geometry.modal_length - SETTLED_TAIL_GUARD - MIN_WINDOW
-    settled = recommended_start <= latest
-    if not settled:
+    if verdict == "measured":
+        # settled where the fitted decay reaches a fraction of the noise floor.
+        # Extrapolating the fit rather than reading the first index under a
+        # threshold matters: the profile approaches its floor asymptotically,
+        # so a crossing index there is decided by noise on an almost flat curve
+        # and moves by several samples between subsets of the same capture,
+        # while the fit uses every point of the decay and does not.
+        crossing = (
+            np.log10(flat * settle_floor_mult) - fit.fit_intercept
+        ) / fit.fit_slope
+        if not np.isfinite(crossing):
+            verdict, fit = "no decay", None
+    if verdict == "measured":
+        # a crossing before FIT_LO settled inside the clock-edge straddle; the
+        # cap at the dwell length only guards the ceil, the latest-window clamp
+        # below decides the unsettled case
+        crossing = min(max(crossing, float(FIT_LO)), float(geometry.modal_length))
+        recommended_start = int(np.ceil(crossing))
+        settled = recommended_start <= latest
+        if not settled:
+            recommended_start = latest
+    elif verdict == "flat":
+        recommended_start = FIT_LO
+        settled = True
+    else:
         recommended_start = latest
+        settled = False
     recommended_length = geometry.modal_length - SETTLED_TAIL_GUARD - recommended_start
 
     frames = None
@@ -371,11 +400,13 @@ def analyse_pixels(
         value_field=value_field,
         geometry=geometry,
         profile=profile,
+        fit=fit,
         crosstalk=crosstalk,
         frames=frames,
         recommended_start=recommended_start,
         recommended_length=recommended_length,
         settled=settled,
+        verdict=verdict,
     )
 
 
@@ -408,10 +439,19 @@ def format_report(
         f"            lengths {dict(sorted(g.length_counts.items())[:4])}, "
         f"excluded {g.excluded_long} long / {g.excluded_short} short"
     )
-    out.append(
-        f"  settling: tau {t(p.tau)} from indices {p.fit_lo}..{p.fit_hi}, "
-        f"rms {p.fit_rms:.4f} dec"
-    )
+    if report.fit is not None:
+        out.append(
+            f"  settling: tau {t(report.fit.tau)} from indices "
+            f"{report.fit.fit_lo}..{report.fit.fit_hi}, "
+            f"rms {report.fit.fit_rms:.4f} dec"
+        )
+    elif report.verdict == "flat":
+        out.append(
+            "  settling: faster than the dwell resolves; the profile never "
+            "stands clear of the noise floor"
+        )
+    else:
+        out.append("  settling: the residual does not decay within a dwell")
     out.append(f"            per-sample noise {v(p.floor)} rms")
     out.append("  cost of starting the average at index k (nan once k reaches")
     out.append("  the settled reference, where the two share samples):")
@@ -427,7 +467,12 @@ def format_report(
         f"(leak {c.lag_gain[report.recommended_start] * 100:+.4f}%, "
         f"fixed pattern {v(c.bias_sigma[report.recommended_start])})"
     )
-    if not report.settled:
+    if report.verdict == "no decay":
+        out.append(
+            "            NOT settled: the residual never decays; this window "
+            "is the latest the dwell can hold"
+        )
+    elif not report.settled:
         out.append(
             "            NOT settled: the dwell ends before the residual reaches "
             "the noise floor; this window is the latest the dwell can hold"
