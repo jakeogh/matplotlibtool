@@ -29,6 +29,19 @@ class Overlay:
     settle_ref: float | None = None  # when set, display y = log10|y - ref|
     auto_size: bool = True  # size follows how many points are actually drawn
 
+    # A tracking overlay is positioned by the view rather than by its own
+    # values: y_scale and offset_y are recomputed from the current ylim before
+    # every render. Logic lines carry no useful magnitude, only timing, so at
+    # their own scale they are invisible beside data measured in millions of
+    # ADC codes. Tracking keeps them beside whatever is on screen through any
+    # zoom, without the operator setting a scale and offset by hand.
+    viewport_track: bool = False
+    viewport_amplitude: float = 0.12  # high level, as a fraction of the view span
+
+    _y_range_cache: tuple[int, tuple[float, float]] | None = field(
+        default=None, init=False, repr=False
+    )
+
     scatter_artist: Any = field(default=None, init=False, repr=False)
 
     # caches keyed on the identity of color_data
@@ -41,6 +54,37 @@ class Overlay:
     _settle_cache: tuple[tuple, np.ndarray] | None = field(
         default=None, init=False, repr=False
     )
+
+    def raw_y_range(self) -> tuple[float, float]:
+        """Span of this overlay's own y values, before scale and offset."""
+        key = id(self.points)
+        if self._y_range_cache is not None and self._y_range_cache[0] == key:
+            return self._y_range_cache[1]
+        if len(self.points) == 0:
+            span = (0.0, 0.0)
+        else:
+            column = self.points[:, 1]
+            span = (float(column.min()), float(column.max()))
+        self._y_range_cache = (key, span)
+        return span
+
+    def track_viewport(self, ylim: tuple[float, float]) -> None:
+        """Place this overlay against the view, low level at the midpoint.
+
+        A line that never changes state has no span to scale, so it sits on the
+        baseline rather than dividing by zero to get there.
+        """
+        low, high = ylim
+        span = high - low
+        baseline = low + span / 2.0
+        raw_low, raw_high = self.raw_y_range()
+        raw_span = raw_high - raw_low
+        if raw_span <= 0.0 or span <= 0.0:
+            self.y_scale = 0.0
+            self.offset_y = baseline
+            return
+        self.y_scale = self.viewport_amplitude * span / raw_span
+        self.offset_y = baseline - raw_low * self.y_scale
 
     def display_points(self) -> np.ndarray:
         """

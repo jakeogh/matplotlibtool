@@ -179,6 +179,8 @@ class PlotManager:
         is_array_parent: bool = False,
         global_color_min: float | None = None,
         global_color_max: float | None = None,
+        viewport_track: bool = False,
+        viewport_amplitude: float = 0.12,
     ) -> int:
         plot = Overlay(
             points=points,
@@ -191,6 +193,8 @@ class PlotManager:
             offset_x=offset_x,
             offset_y=offset_y,
             visible=visible,
+            viewport_track=viewport_track,
+            viewport_amplitude=viewport_amplitude,
         )
 
         plot_index = len(self.plots)

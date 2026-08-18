@@ -359,7 +359,9 @@ class Plot2D(QMainWindow):
         ymax = -math.inf
 
         for plot in self.plot_manager.get_visible_plots():
-            if len(plot.points) == 0:
+            if len(plot.points) == 0 or plot.viewport_track:
+                # a tracking overlay is placed from the ylim, so fitting the
+                # ylim to it would chase its own tail
                 continue
             points = plot.display_points()
             mask = (points[:, 0] >= xlim[0]) & (points[:, 0] <= xlim[1])
@@ -445,7 +447,9 @@ class Plot2D(QMainWindow):
     ) -> ViewBounds:
         """Fit view to all visible data; unit square when there is none."""
         all_points = [
-            plot.display_points() for plot in self.plot_manager.get_visible_plots()
+            plot.display_points()
+            for plot in self.plot_manager.get_visible_plots()
+            if not plot.viewport_track
         ]
 
         bounds = ViewManager.compute_fit_bounds(all_points, x_pad_ratio, y_pad_ratio)
@@ -493,9 +497,20 @@ class Plot2D(QMainWindow):
         transform_params: dict | None = None,
         plot_name: str | None = None,
         color_field: str | None = None,
+        viewport_track: bool = False,
+        viewport_amplitude: float = 0.12,
     ) -> dict:
         """
         Add a single plot from a structured array field.
+
+        viewport_track places the plot against the view rather than at its own
+        values: its low level sits at the middle of whatever is on screen and
+        its high level rises by viewport_amplitude of the view's height, both
+        recomputed on every zoom and pan. It is for series whose meaning is
+        their timing rather than their magnitude, logic lines above all, which
+        at their own scale of nought to one are invisible beside data measured
+        in millions of ADC codes. A tracking plot is excluded from every fit,
+        so it follows the view without ever moving it.
 
         Registers the array with the field management system and creates an
         auto-group so additional fields can be added to the same group.
@@ -567,6 +582,8 @@ class Plot2D(QMainWindow):
             is_array_parent=True,
             global_color_min=global_color_min,
             global_color_max=global_color_max,
+            viewport_track=viewport_track,
+            viewport_amplitude=viewport_amplitude,
         )
 
         self.array_field_integration.register_field_plot(
@@ -663,6 +680,10 @@ class Plot2D(QMainWindow):
             self.ax.set_aspect("auto", adjustable="datalim")
         else:
             self.ax.set_aspect("equal", adjustable="datalim")
+
+        for plot in all_plots:
+            if plot.viewport_track:
+                plot.track_viewport(current_bounds.ylim)
 
         color_ranges: list[tuple[float, float] | None] = []
         for i, plot in enumerate(all_plots):
