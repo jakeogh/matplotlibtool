@@ -267,6 +267,13 @@ def _crosstalk(
         if st >= settled_lo:
             continue
         error = matrix[:, st:end].mean(axis=1) - settled
+        if step.min() == step.max():
+            # every pixel stepped by the same amount, so the crosstalk slope
+            # has nothing to lever against and the fit is singular
+            raise PixelAnalysisError(
+                "crosstalk: pixel to pixel steps are all equal, so there is no "
+                "gradient to fit"
+            )
         gains[i], biases[i] = np.polyfit(step, error, 1)
         # averaging each pixel over its frames leaves the part that repeats
         sigmas[i] = float(np.std([error[g].mean() for g in per_pixel]))

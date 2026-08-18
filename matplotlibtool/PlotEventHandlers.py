@@ -726,14 +726,21 @@ class PlotEventHandlers:
 
     def _pixel_dc_candidates(self) -> list[tuple[int, str, np.ndarray]]:
         """(plot index, value field, source array) for every visible plot whose
-        source array carries a pixel field."""
+        source array carries a pixel field and whose values are pixel values.
+
+        A tracking overlay shares its source array with the data it is drawn
+        beside, so the pixel field alone would admit it. Its own values are not
+        pixel values though — that they carry no magnitude is why it is placed
+        against the view — and settling and crosstalk mean nothing on a logic
+        line.
+        """
         manager = self.viewer.array_field_integration.array_field_manager
         plots = self.viewer.plot_manager.plots
         candidates = []
         for plot_index, (array_index, field) in sorted(
             manager.plot_to_array_field.items()
         ):
-            if not plots[plot_index].visible:
+            if not plots[plot_index].visible or plots[plot_index].viewport_track:
                 continue
             data = manager.get_array_info(array_index)["data"]
             if data.dtype.names is None or "pixel" not in data.dtype.names:
