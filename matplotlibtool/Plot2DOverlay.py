@@ -38,6 +38,10 @@ class Overlay:
     viewport_track: bool = False
     viewport_amplitude: float = 0.12  # high level, as a fraction of the view span
 
+    # data-space y of this overlay's lane centre, valid after track_viewport;
+    # where the lane's name label is drawn
+    track_label_y: float = field(default=0.0, init=False, repr=False)
+
     _y_range_cache: tuple[int, tuple[float, float]] | None = field(
         default=None, init=False, repr=False
     )
@@ -68,22 +72,38 @@ class Overlay:
         self._y_range_cache = (key, span)
         return span
 
-    def track_viewport(self, ylim: tuple[float, float]) -> None:
-        """Place this overlay against the view, low level at the midpoint.
+    def track_viewport(
+        self,
+        ylim: tuple[float, float],
+        slot: int = 0,
+        slot_count: int = 1,
+    ) -> None:
+        """Place this overlay in its own lane of a stack centred on the view.
 
-        A line that never changes state has no span to scale, so it sits on the
-        baseline rather than dividing by zero to get there.
+        Every tracked overlay at one shared baseline is a single unreadable
+        pile, so lane `slot` of `slot_count` gets its own band: lanes run
+        top-down in add order, each line centred inside its lane with a gap to
+        its neighbours, and the whole stack compresses once it would fill most
+        of the view. A line that never changes state has no span to scale, so
+        it sits on its lane baseline rather than dividing by zero to get there.
         """
         low, high = ylim
         span = high - low
-        baseline = low + span / 2.0
+        mid = low + span / 2.0
+        pitch = self.viewport_amplitude * 1.5
+        if pitch * slot_count > 0.85:
+            pitch = 0.85 / slot_count
+        amplitude = pitch / 1.5
+        lane_top = mid + span * (pitch * slot_count / 2.0 - slot * pitch)
+        baseline = lane_top - span * (pitch + amplitude) / 2.0
+        self.track_label_y = lane_top - span * pitch / 2.0
         raw_low, raw_high = self.raw_y_range()
         raw_span = raw_high - raw_low
         if raw_span <= 0.0 or span <= 0.0:
             self.y_scale = 0.0
             self.offset_y = baseline
             return
-        self.y_scale = self.viewport_amplitude * span / raw_span
+        self.y_scale = amplitude * span / raw_span
         self.offset_y = baseline - raw_low * self.y_scale
 
     def display_points(self) -> np.ndarray:

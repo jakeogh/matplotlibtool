@@ -27,6 +27,7 @@ import math
 import numpy as np
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
+from matplotlib.transforms import blended_transform_factory
 from PyQt6.QtCore import Qt  # type: ignore
 from PyQt6.QtCore import QTimer
 from PyQt6.QtGui import QColor  # type: ignore
@@ -52,6 +53,7 @@ from .InputState import InputState
 from .KeyboardInputManager import KeyboardInputManager
 from .MouseMode import MouseMode
 from .Plot2DInteractions import Plot2DInteractions
+from .Plot2DOverlay import Overlay
 from .Plot2DRenderer import Matplotlib2DRenderer
 from .PlotDataProcessor import PlotDataProcessor
 from .PlotEventHandlers import PlotEventHandlers
@@ -162,6 +164,7 @@ class Plot2D(QMainWindow):
         self.cull_margin = 0.25
 
         self.renderer = Matplotlib2DRenderer()
+        self._track_labels: list = []
         self.interactions = Plot2DInteractions(
             self,
             self.ax,
@@ -504,13 +507,14 @@ class Plot2D(QMainWindow):
         Add a single plot from a structured array field.
 
         viewport_track places the plot against the view rather than at its own
-        values: its low level sits at the middle of whatever is on screen and
-        its high level rises by viewport_amplitude of the view's height, both
-        recomputed on every zoom and pan. It is for series whose meaning is
-        their timing rather than their magnitude, logic lines above all, which
-        at their own scale of nought to one are invisible beside data measured
-        in millions of ADC codes. A tracking plot is excluded from every fit,
-        so it follows the view without ever moving it.
+        values: every tracking plot gets its own lane in a stack centred on
+        whatever is on screen, sized from viewport_amplitude, recomputed on
+        every zoom and pan, and labelled with its name at the left edge of its
+        lane. It is for series whose meaning is their timing rather than their
+        magnitude, logic lines above all, which at their own scale of nought
+        to one are invisible beside data measured in millions of ADC codes. A
+        tracking plot is excluded from every fit, so it follows the view
+        without ever moving it.
 
         Registers the array with the field management system and creates an
         auto-group so additional fields can be added to the same group.
@@ -681,9 +685,18 @@ class Plot2D(QMainWindow):
         else:
             self.ax.set_aspect("equal", adjustable="datalim")
 
-        for plot in all_plots:
-            if plot.viewport_track:
-                plot.track_viewport(current_bounds.ylim)
+        tracked = [
+            (index, plot)
+            for index, plot in enumerate(all_plots)
+            if plot.viewport_track
+        ]
+        for slot, (_, plot) in enumerate(tracked):
+            plot.track_viewport(
+                current_bounds.ylim,
+                slot=slot,
+                slot_count=len(tracked),
+            )
+        self._refresh_track_labels(tracked)
 
         color_ranges: list[tuple[float, float] | None] = []
         for i, plot in enumerate(all_plots):
@@ -717,6 +730,50 @@ class Plot2D(QMainWindow):
         )
 
         self.secondary_axis.update_after_plot()
+
+    def _refresh_track_labels(
+        self,
+        tracked: list[tuple[int, Overlay]],
+    ) -> None:
+        """One name per logic lane, pinned to the left edge of the axes.
+
+        The x position lives in axes coordinates so the label holds the edge
+        through any pan or zoom; the y position lives in data coordinates so
+        it rides its lane. Rebuilt on every render because the lanes move
+        with the view.
+        """
+        for artist in self._track_labels:
+            artist.remove()
+        self._track_labels = []
+
+        text_color = "white" if self.dark_mode else "black"
+        box_color = "black" if self.dark_mode else "white"
+        transform = blended_transform_factory(self.ax.transAxes, self.ax.transData)
+        for index, plot in tracked:
+            if not plot.visible:
+                continue
+            name = self.plot_manager.get_plot_name(index)
+            if not name:
+                continue
+            self._track_labels.append(
+                self.ax.text(
+                    0.004,
+                    plot.track_label_y,
+                    name,
+                    transform=transform,
+                    ha="left",
+                    va="center",
+                    fontsize=8,
+                    color=text_color,
+                    zorder=20,
+                    bbox={
+                        "facecolor": box_color,
+                        "edgecolor": "none",
+                        "alpha": 0.55,
+                        "pad": 1.5,
+                    },
+                )
+            )
 
     # ===== appearance =====
 
