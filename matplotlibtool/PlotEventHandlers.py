@@ -205,10 +205,33 @@ class PlotEventHandlers:
                         f"# y_secondary: {cfg.label} [{cfg.unit}] = "
                         f"{cfg.scale!r} * y + {cfg.offset!r}\n"
                     )
-                handle.write("# columns: plot,x,y,color\n")
+                tracked = [
+                    (pm.get_plot_name(i) or f"plot{i}", plot)
+                    for i, plot in enumerate(pm.plots)
+                    if plot.viewport_track and plot.visible and len(plot.points) > 0
+                ]
+                gpio_names = [name for name, _ in tracked]
+                columns = "plot,x,y,color"
+                if gpio_names:
+                    columns += "," + ",".join(gpio_names)
+                handle.write(f"# columns: {columns}\n")
                 handle.write("# y is raw sample value before y_scale and offsets\n")
+                gpio_lookup = []
+                if gpio_names:
+                    handle.write(
+                        "# gpio columns hold each line's raw level at the row's "
+                        "x; nan where the line has no sample at that x\n"
+                    )
+                    for _, tplot in tracked:
+                        order = np.argsort(tplot.points[:, 0], kind="stable")
+                        gpio_lookup.append(
+                            (tplot.points[order, 0], tplot.points[order, 1])
+                        )
 
                 for i, plot in enumerate(pm.plots):
+                    if plot.viewport_track:
+                        # logic lines ride as columns on every row instead
+                        continue
                     if not plot.visible or len(plot.points) == 0:
                         continue
                     name = pm.get_plot_name(i) or f"plot{i}"
@@ -227,8 +250,20 @@ class PlotEventHandlers:
                         color = np.full(n, np.nan)
                     else:
                         color = np.asarray(plot.color_data)[mask]
-                    for (px, py), pc in zip(sel, color):
-                        handle.write(f"{name},{px:.10g},{py:.10g},{pc:.10g}\n")
+                    if gpio_lookup:
+                        rx = sel[:, 0]
+                        gpio_cols = []
+                        for gx, gy in gpio_lookup:
+                            idx = np.clip(np.searchsorted(gx, rx), 0, len(gx) - 1)
+                            vals = gy[idx].astype(np.float64)
+                            vals[gx[idx] != rx] = np.nan
+                            gpio_cols.append(vals)
+                        for k, ((px, py), pc) in enumerate(zip(sel, color)):
+                            extra = "".join(f",{c[k]:.10g}" for c in gpio_cols)
+                            handle.write(f"{name},{px:.10g},{py:.10g},{pc:.10g}{extra}\n")
+                    else:
+                        for (px, py), pc in zip(sel, color):
+                            handle.write(f"{name},{px:.10g},{py:.10g},{pc:.10g}\n")
                     rows += n
 
             print(f"[INFO] Data auto-saved to: {filepath} ({rows} samples)")
