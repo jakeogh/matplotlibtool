@@ -28,23 +28,24 @@ from dataclasses import dataclass
 from typing import Literal
 
 import numpy as np
+from iio_pixel_settle_estimator import RECORD_DTYPE
+from iio_pixel_settle_estimator import VERDICTS
+from iio_pixel_settle_estimator import estimate_settle_window_array
+from iio_pixel_settle_estimator import settle_geometry
 
-SETTLED_TAIL_GUARD = 2      # trailing records excluded from the settled reference
-SETTLED_TAIL_SPAN = 8       # records forming the settled reference
-SETTLE_FLOOR_MULT = 0.5     # settled once the fitted decay is this fraction of the floor
-FIT_FLOOR_MULT = 3.0        # profile fit stops this far above the noise floor
-FIT_LO = 2                  # index 0 and 1 straddle the pixel clock edge
-MIN_WINDOW = 4              # records kept when the dwell is too short to settle
-MIN_GROUPS = 32
-MIN_FIT_POINTS = 5
+# The window and the geometry it rests on come from iio-pixel-settle-estimator,
+# which owns the criterion. This module measures dwells and the diagnostics
+# around them; it does not decide where a window starts. Two implementations of
+# one criterion drift, and did: a fault fixed in the estimator went on reading
+# a large step pixel 179,091 codes high here for as long as the copy survived.
+GEOMETRY = settle_geometry()
+SETTLED_TAIL_GUARD = GEOMETRY.settled_tail_guard
+SETTLED_TAIL_SPAN = GEOMETRY.settled_tail_span
+MIN_GROUPS = GEOMETRY.min_dwells
+SETTLE_FLOOR_MULT = 0.5     # the estimator's own default, for the call
 
-# How the window was found. A well formed capture always yields a window; the
-# verdict says whether the decay fit produced it (measured), the profile never
-# stood clear of the noise floor so every start is equally settled (flat), the
-# residual never decays and the window is the latest the dwell can hold
-# (no decay), or the dwell has no room for a settled reference at all and the
-# window is the latest records it can hold (short).
-Verdict = Literal["measured", "flat", "no decay", "short"]
+# How the window was found; the estimator decides which.
+Verdict = Literal[*VERDICTS]
 
 
 class PixelAnalysisError(ValueError):
@@ -75,8 +76,6 @@ class SettleFit:
     tau: float                  # samples, from the log-residual slope
     fit_lo: int
     fit_hi: int
-    fit_slope: float            # decades per sample
-    fit_intercept: float
     fit_rms: float
 
 
@@ -200,49 +199,37 @@ def _settled(matrix: np.ndarray) -> np.ndarray:
     return matrix[:, lo:hi].mean(axis=1)
 
 
-def _profile(
-    matrix: np.ndarray,
-    settled: np.ndarray,
-) -> tuple[SettleProfile, Verdict, SettleFit | None, float]:
-    """Settling profile plus the verdict of the decay fit over it."""
-    deviation = matrix - settled[:, None]
-    residual = np.median(np.abs(deviation), axis=0)
-    transient = deviation.mean(axis=0)
+def _transient(matrix: np.ndarray, settled: np.ndarray) -> np.ndarray:
+    """Signed mean deviation per index: pixel steps cancel, the common part stays.
 
-    tail = residual[-(SETTLED_TAIL_GUARD + SETTLED_TAIL_SPAN) : -SETTLED_TAIL_GUARD]
-    flat = float(np.median(tail))
-    profile = SettleProfile(
-        residual=residual,
-        transient=transient,
-        floor=flat / 0.6745,                    # median |x| of a normal -> sigma
-    )
-    if flat <= 0.0:
-        # identically zero residual: constant data, settled everywhere
-        return profile, "flat", None, flat, FIT_LO
+    A diagnostic rather than part of the criterion, which is why it is measured
+    here while the residual profile comes back from the estimator.
+    """
+    return (matrix - settled[:, None]).mean(axis=0)
 
-    above = np.flatnonzero(residual > FIT_FLOOR_MULT * flat)
-    fit_hi = int(above[-1]) if above.size else FIT_LO
-    if fit_hi - FIT_LO + 1 < MIN_FIT_POINTS:
-        # too few points to fit a decay, which is not the same as having
-        # settled: fit_hi travels with the verdict so the caller can start
-        # after the records that do stand clear
-        return profile, "flat", None, flat, fit_hi
 
-    k = np.arange(FIT_LO, fit_hi + 1)
-    slope, intercept = np.polyfit(k, np.log10(residual[k]), 1)
-    if not slope < 0.0:                         # also catches a degenerate nan fit
-        # rising residual: it never settles within a dwell
-        return profile, "no decay", None, flat, fit_hi
-    rms = float(np.sqrt(np.mean((np.log10(residual[k]) - (slope * k + intercept)) ** 2)))
-    fit = SettleFit(
-        tau=float(np.log10(np.e) / -slope),
-        fit_lo=FIT_LO,
-        fit_hi=fit_hi,
-        fit_slope=float(slope),
-        fit_intercept=float(intercept),
-        fit_rms=rms,
-    )
-    return profile, "measured", fit, flat, fit_hi
+def _records_for_estimator(
+    data: np.ndarray,
+    value_field: str,
+    pixel_field: str,
+) -> np.ndarray:
+    """The array in the layout the estimator reads.
+
+    Handed over untouched when it already carries that layout and names the
+    fields the estimator knows, since the estimator indexes the buffer rather
+    than copying it. Otherwise the two columns it needs are gathered into a
+    conforming array, which also lets any field be measured, not just in0.
+    """
+    if (
+        data.dtype == RECORD_DTYPE
+        and value_field in ("in0", "in1")
+        and pixel_field == "pixel"
+    ):
+        return data, value_field
+    records = np.zeros(len(data), dtype=RECORD_DTYPE)
+    records["in0"] = data[value_field]
+    records["pixel"] = data[pixel_field]
+    return records, "in0"
 
 
 def _crosstalk(
@@ -357,68 +344,47 @@ def analyse_pixels(
     group_starts = starts[usable]
     matrix = _stack(value, group_starts, geometry.modal_length)
 
-    # A well formed capture always yields a window: the operator captured it
-    # and wants a number out of it, not a refusal. The verdict says how the
-    # window was found.
-    if geometry.modal_length <= SETTLED_TAIL_GUARD + SETTLED_TAIL_SPAN + MIN_WINDOW:
-        # No room for a settled reference, so nothing about settling is
-        # measurable. Average the latest records the dwell can hold, keeping
-        # the tail guard while any sample remains before it, down to a single
-        # sample.
-        profile, fit, crosstalk = None, None, None
-        verdict: Verdict = "short"
-        settled = False
-        usable_end = max(geometry.modal_length - SETTLED_TAIL_GUARD, 1)
-        recommended_length = min(MIN_WINDOW, usable_end)
-        recommended_start = usable_end - recommended_length
+    # The window comes from the estimator, which owns the criterion; this
+    # module measures the dwells it is read off and the diagnostics beside it.
+    records, estimator_field = _records_for_estimator(data, value_field, pixel_field)
+    window = estimate_settle_window_array(
+        records,
+        field=estimator_field,
+        idle_pixel=idle_pixel,
+        settle_floor_mult=settle_floor_mult,
+    )
+    verdict: Verdict = window["verdict"]
+    recommended_start = window["start"]
+    recommended_length = window["length"]
+    settled = window["settled"]
+
+    if verdict == "short":
+        # no room for a settled reference, so there is no profile to measure
+        # against and nothing for the diagnostics to stand on
         return _finish_report(
             data, value_field, frame_field, drop_first_frame,
             geometry, matrix, pixel, group_starts,
-            profile, fit, crosstalk,
+            None, None, None,
             recommended_start, recommended_length, settled, verdict,
         )
 
     settled_values = _settled(matrix)
-
-    profile, verdict, fit, flat, fit_hi = _profile(matrix, settled_values)
+    profile = SettleProfile(
+        residual=np.asarray(window["profile"], dtype=np.float64),
+        transient=_transient(matrix, settled_values),
+        floor=window["floor"],
+    )
+    fit = (
+        SettleFit(
+            tau=window["tau"],
+            fit_lo=GEOMETRY.fit_lo,
+            fit_hi=window["fit_hi"],
+            fit_rms=window["fit_rms"],
+        )
+        if verdict == "measured"
+        else None
+    )
     crosstalk = _crosstalk(matrix, settled_values, pixel[group_starts])
-
-    latest = geometry.modal_length - SETTLED_TAIL_GUARD - MIN_WINDOW
-    if verdict == "measured":
-        # settled where the fitted decay reaches a fraction of the noise floor.
-        # Extrapolating the fit rather than reading the first index under a
-        # threshold matters: the profile approaches its floor asymptotically,
-        # so a crossing index there is decided by noise on an almost flat curve
-        # and moves by several samples between subsets of the same capture,
-        # while the fit uses every point of the decay and does not.
-        crossing = (
-            np.log10(flat * settle_floor_mult) - fit.fit_intercept
-        ) / fit.fit_slope
-        if not np.isfinite(crossing):
-            verdict, fit = "no decay", None
-    if verdict == "measured":
-        # a crossing before FIT_LO settled inside the clock-edge straddle; the
-        # cap at the dwell length only guards the ceil, the latest-window clamp
-        # below decides the unsettled case
-        crossing = min(max(crossing, float(FIT_LO)), float(geometry.modal_length))
-        recommended_start = int(np.ceil(crossing))
-        settled = recommended_start <= latest
-        if not settled:
-            recommended_start = latest
-    elif verdict == "flat":
-        # Too few points clear of the floor to fit is not the same as having
-        # settled. A fast decay leaves three points far above the floor and
-        # still fails the five a fit needs; starting at FIT_LO then averages
-        # records that are plainly still moving, which on a 20 record dwell put
-        # a large step pixel 179,091 codes above where it settled. Skipping
-        # them needs no fit, only the threshold that decided they stand clear.
-        wanted = max(FIT_LO, fit_hi + 1) if flat > 0.0 else FIT_LO
-        settled = wanted <= latest
-        recommended_start = wanted if settled else latest
-    else:
-        recommended_start = latest
-        settled = False
-    recommended_length = geometry.modal_length - SETTLED_TAIL_GUARD - recommended_start
 
     return _finish_report(
         data, value_field, frame_field, drop_first_frame,

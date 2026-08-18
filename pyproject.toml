@@ -5,7 +5,7 @@ backend-path = ["."]
 
 [project]
 name = "matplotlibtool"
-version = "1!0.0.1787047823"
+version = "1!0.0.1787048826"
 description = "2D and 3D matplotlib plotting lib for structured arrays"
 authors = [
     { name = "Justin Keogh", email = "github.com@v6y.net" },
@@ -36,7 +36,7 @@ matplotlibtool = [
 ]
 
 [tool.pep508-url-version-backend]
-dependencies-indexed = ["pint", "asserttool>=1!0.0.1785542140", "click-auto-help>=1!0.0.1784680961", "clicktool>=1!0.0.1785930957", "configtool>=1!0.0.1785931859", "globalverbose>=1!0.0.1784686617", "pyfft>=1!0.0.1785928806", "unmp>=1!0.0.1785929992"]
+dependencies-indexed = ["pint", "asserttool>=1!0.0.1785542140", "click-auto-help>=1!0.0.1784680961", "clicktool>=1!0.0.1785930957", "configtool>=1!0.0.1785931859", "globalverbose>=1!0.0.1784686617", "iio-pixel-settle-estimator>=0.0.1785830000", "pyfft>=1!0.0.1785928806", "unmp>=1!0.0.1785929992"]
 dependencies-git = [
 	"pint",
 	"asserttool @ git+https://github.com/jakeogh/asserttool",
@@ -44,6 +44,7 @@ dependencies-git = [
 	"clicktool @ git+https://github.com/jakeogh/clicktool",
 	"configtool @ git+https://github.com/jakeogh/configtool",
 	"globalverbose @ git+https://github.com/jakeogh/globalverbose",
+	"iio-pixel-settle-estimator @ git+https://github.com/jakeogh/iio-pixel-settle-estimator",
 	"pyfft @ git+https://github.com/jakeogh/pyfft",
 	"unmp @ git+https://github.com/jakeogh/unmp"]
 index-urls = ["jakeogh.github.io", "pip-index"]
