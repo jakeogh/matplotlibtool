@@ -218,20 +218,21 @@ def _profile(
     )
     if flat <= 0.0:
         # identically zero residual: constant data, settled everywhere
-        return profile, "flat", None, flat
+        return profile, "flat", None, flat, FIT_LO
 
     above = np.flatnonzero(residual > FIT_FLOOR_MULT * flat)
     fit_hi = int(above[-1]) if above.size else FIT_LO
     if fit_hi - FIT_LO + 1 < MIN_FIT_POINTS:
-        # the profile never stands clear of the floor: settling is faster than
-        # the dwell resolves, so every start is equally settled
-        return profile, "flat", None, flat
+        # too few points to fit a decay, which is not the same as having
+        # settled: fit_hi travels with the verdict so the caller can start
+        # after the records that do stand clear
+        return profile, "flat", None, flat, fit_hi
 
     k = np.arange(FIT_LO, fit_hi + 1)
     slope, intercept = np.polyfit(k, np.log10(residual[k]), 1)
     if not slope < 0.0:                         # also catches a degenerate nan fit
         # rising residual: it never settles within a dwell
-        return profile, "no decay", None, flat
+        return profile, "no decay", None, flat, fit_hi
     rms = float(np.sqrt(np.mean((np.log10(residual[k]) - (slope * k + intercept)) ** 2)))
     fit = SettleFit(
         tau=float(np.log10(np.e) / -slope),
@@ -241,7 +242,7 @@ def _profile(
         fit_intercept=float(intercept),
         fit_rms=rms,
     )
-    return profile, "measured", fit, flat
+    return profile, "measured", fit, flat, fit_hi
 
 
 def _crosstalk(
@@ -379,7 +380,7 @@ def analyse_pixels(
 
     settled_values = _settled(matrix)
 
-    profile, verdict, fit, flat = _profile(matrix, settled_values)
+    profile, verdict, fit, flat, fit_hi = _profile(matrix, settled_values)
     crosstalk = _crosstalk(matrix, settled_values, pixel[group_starts])
 
     latest = geometry.modal_length - SETTLED_TAIL_GUARD - MIN_WINDOW
@@ -405,8 +406,15 @@ def analyse_pixels(
         if not settled:
             recommended_start = latest
     elif verdict == "flat":
-        recommended_start = FIT_LO
-        settled = True
+        # Too few points clear of the floor to fit is not the same as having
+        # settled. A fast decay leaves three points far above the floor and
+        # still fails the five a fit needs; starting at FIT_LO then averages
+        # records that are plainly still moving, which on a 20 record dwell put
+        # a large step pixel 179,091 codes above where it settled. Skipping
+        # them needs no fit, only the threshold that decided they stand clear.
+        wanted = max(FIT_LO, fit_hi + 1) if flat > 0.0 else FIT_LO
+        settled = wanted <= latest
+        recommended_start = wanted if settled else latest
     else:
         recommended_start = latest
         settled = False
