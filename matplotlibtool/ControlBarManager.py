@@ -58,6 +58,7 @@ class ControlBarSignals(QObject):
     fftRequested = pyqtSignal()
     pixelsRequested = pyqtSignal()
     pixelDcToggled = pyqtSignal(bool)
+    gpioToggled = pyqtSignal(bool)
     peaksToggled = pyqtSignal(bool)
     saveDataRequested = pyqtSignal()
 
@@ -738,6 +739,17 @@ class ControlBarManager:
         layout.addWidget(pixel_dc_chk)
         self.widgets["pixel_dc_chk"] = pixel_dc_chk
 
+        gpio_chk = QCheckBox("GPIO")
+        gpio_chk.setToolTip(
+            "Show the decoded GPIO logic lines as labelled lanes stacked "
+            "against the view. A line that never toggles in the capture "
+            "carries no timing and is not plotted at all."
+        )
+        gpio_chk.setChecked(True)
+        gpio_chk.toggled.connect(self.signals.gpioToggled.emit)
+        layout.addWidget(gpio_chk)
+        self.widgets["gpio_chk"] = gpio_chk
+
         peaks_chk = QCheckBox("Peaks")
         peaks_chk.setToolTip(
             "Label the analyzed peaks of this spectrum with their frequency. "
@@ -1062,6 +1074,16 @@ class ControlBarManager:
         chk.blockSignals(True)
         chk.setChecked(checked)
         chk.blockSignals(False)
+
+    def set_gpio_checked(self, checked: bool) -> None:
+        """Set the GPIO checkbox without emitting."""
+        chk = self.widgets["gpio_chk"]
+        chk.blockSignals(True)
+        chk.setChecked(checked)
+        chk.blockSignals(False)
+
+    def is_gpio_checked(self) -> bool:
+        return self.widgets["gpio_chk"].isChecked()
 
     def set_settle_checked(self, checked: bool):
         """Set settle checkbox state without emitting the toggle signal."""

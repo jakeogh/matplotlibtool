@@ -825,6 +825,10 @@ class Plot2D(QMainWindow):
             self.point_hover.on_hover_motion(event)
 
     def _on_plot_added(self, plot_index: int):
+        plot = self.plot_manager.plots[plot_index]
+        if plot.viewport_track and not self.control_bar_manager.is_gpio_checked():
+            # a lane added while GPIO is unchecked honours the checkbox
+            self.plot_manager.set_plot_visibility(plot_index, False)
         self._update_plot()
         self.canvas.draw_idle()
 

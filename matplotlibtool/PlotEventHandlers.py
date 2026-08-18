@@ -683,6 +683,12 @@ class PlotEventHandlers:
             self._apply_pixel_dc(False)
             self.viewer.control_bar_manager.set_pixel_dc_checked(False)
 
+    def on_gpio_toggled(self, checked: bool) -> None:
+        """Show or hide every viewport-tracked plot: the GPIO logic lanes."""
+        for index, plot in enumerate(self.viewer.plot_manager.plots):
+            if plot.viewport_track:
+                self.viewer.plot_manager.set_plot_visibility(index, checked)
+
     def _apply_pixel_dc(self, enabled: bool) -> None:
         for overlay in self._pixel_dc.values():
             overlay.clear()
