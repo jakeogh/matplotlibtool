@@ -685,10 +685,12 @@ class Plot2D(QMainWindow):
         else:
             self.ax.set_aspect("equal", adjustable="datalim")
 
+        # a hidden lane gives up its slot: the stack is laid out over the
+        # visible lines only, so removing one closes the gap
         tracked = [
             (index, plot)
             for index, plot in enumerate(all_plots)
-            if plot.viewport_track
+            if plot.viewport_track and plot.visible
         ]
         for slot, (_, plot) in enumerate(tracked):
             plot.track_viewport(

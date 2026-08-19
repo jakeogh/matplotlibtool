@@ -16,6 +16,7 @@ from .FFTAnalysis import FFTAnalysisError
 from .PixelAnalysis import PixelAnalysisError
 from .PixelAnalysis import analyse_pixels
 from .PixelAnalysis import format_report
+from .GpioLaneDialog import GpioLaneDialog
 from .PixelDCOverlay import PixelDCOverlay
 from .FFTAnalysis import FFTPeakArtists
 from .FFTAnalysis import FFTResult
@@ -46,6 +47,8 @@ class PlotEventHandlers:
         self._ref_annotation = None
         self._last_analysis = None   # (plot_index, SettleSegments)
         self._pixel_dc: dict[int, PixelDCOverlay] = {}
+        self._gpio_hidden: set[str] = set()
+        self._gpio_dialog: GpioLaneDialog | None = None
         self._pixel_dc_window: tuple[int | None, int | None] = (None, None)
         self._fft_windows: list = []
         self._peak_artists = None
@@ -719,10 +722,59 @@ class PlotEventHandlers:
             self.viewer.control_bar_manager.set_pixel_dc_checked(False)
 
     def on_gpio_toggled(self, checked: bool) -> None:
-        """Show or hide every viewport-tracked plot: the GPIO logic lanes."""
+        """Show or hide the GPIO logic lanes, keeping the per-line choices."""
+        self._apply_gpio_visibility(master=checked)
+
+    def on_gpio_configure(self) -> None:
+        """One checkbox per GPIO line; the lane stack reflows as they change."""
+        if self._gpio_dialog is not None:
+            self._gpio_dialog.close()
+            self._gpio_dialog = None
+        lanes: list[tuple[str, bool]] = []
+        seen: set[str] = set()
         for index, plot in enumerate(self.viewer.plot_manager.plots):
-            if plot.viewport_track:
-                self.viewer.plot_manager.set_plot_visibility(index, checked)
+            if not plot.viewport_track:
+                continue
+            name = self.viewer.plot_manager.get_plot_name(index)
+            if not name or name in seen:
+                continue
+            seen.add(name)
+            lanes.append((name, name not in self._gpio_hidden))
+        if not lanes:
+            print("[INFO] gpio: no logic lanes loaded")
+            return
+        self._gpio_dialog = GpioLaneDialog(
+            self.viewer.control_bar_manager.parent,
+            lanes=lanes,
+            on_toggle=self._on_gpio_lane_toggled,
+        )
+        # WA_DeleteOnClose destroys the widget however it closes; a stale
+        # reference here would be a deleted object on the next click
+        self._gpio_dialog.destroyed.connect(
+            lambda *_: setattr(self, "_gpio_dialog", None)
+        )
+        self._gpio_dialog.show()
+
+    def _on_gpio_lane_toggled(self, name: str, shown: bool) -> None:
+        if shown:
+            self._gpio_hidden.discard(name)
+        else:
+            self._gpio_hidden.add(name)
+        self._apply_gpio_visibility(
+            master=self.viewer.control_bar_manager.is_gpio_checked()
+        )
+
+    def _apply_gpio_visibility(self, *, master: bool) -> None:
+        """A lane is visible when the GPIO checkbox and its own choice agree."""
+        for index, plot in enumerate(self.viewer.plot_manager.plots):
+            if not plot.viewport_track:
+                continue
+            name = self.viewer.plot_manager.get_plot_name(index)
+            self.viewer.plot_manager.set_plot_visibility(
+                index, master and name not in self._gpio_hidden
+            )
+        self.viewer._update_plot()
+        self.viewer.canvas.draw_idle()
 
     def _apply_pixel_dc(self, enabled: bool) -> None:
         for overlay in self._pixel_dc.values():

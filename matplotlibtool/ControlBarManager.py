@@ -59,6 +59,7 @@ class ControlBarSignals(QObject):
     pixelsRequested = pyqtSignal()
     pixelDcToggled = pyqtSignal(bool)
     gpioToggled = pyqtSignal(bool)
+    gpioConfigureRequested = pyqtSignal()
     peaksToggled = pyqtSignal(bool)
     saveDataRequested = pyqtSignal()
 
@@ -742,13 +743,23 @@ class ControlBarManager:
         gpio_chk = QCheckBox("GPIO")
         gpio_chk.setToolTip(
             "Show the decoded GPIO logic lines as labelled lanes stacked "
-            "against the view. A line that never toggles in the capture "
-            "carries no timing and is not plotted at all."
+            "against the view. Every decoded line has a lane whether it "
+            "toggles or not; Configure chooses which appear."
         )
         gpio_chk.setChecked(True)
         gpio_chk.toggled.connect(self.signals.gpioToggled.emit)
         layout.addWidget(gpio_chk)
         self.widgets["gpio_chk"] = gpio_chk
+
+        gpio_cfg_btn = QPushButton("Configure")
+        gpio_cfg_btn.setMaximumWidth(80)
+        gpio_cfg_btn.setToolTip(
+            "Choose which GPIO lines appear. A hidden line gives up its "
+            "lane and the stack closes the gap."
+        )
+        gpio_cfg_btn.clicked.connect(self.signals.gpioConfigureRequested.emit)
+        layout.addWidget(gpio_cfg_btn)
+        self.widgets["gpio_configure_btn"] = gpio_cfg_btn
 
         peaks_chk = QCheckBox("Peaks")
         peaks_chk.setToolTip(
