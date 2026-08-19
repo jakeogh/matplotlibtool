@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "matplotlibtool"
-version = "1!0.0.1787107933"
+version = "1!0.0.1787109968"
 description = "2D and 3D matplotlib plotting lib for structured arrays"
 authors = [
     { name = "Justin Keogh", email = "github.com@v6y.net" },
@@ -15,13 +15,13 @@ dependencies = [
     "numpy",
     "pint",
     "vispy",
-    "asserttool @ git+https://github.com/jakeogh/asserttool@40a10862bff94e0211b9d690e5451d268b9d531a",
-    "click-auto-help @ git+https://github.com/jakeogh/click-auto-help@a39b846877060a6c23c66f7a3ed7b496e7702232",
-    "clicktool @ git+https://github.com/jakeogh/clicktool@ce7e9ab2129069379383aa9be5cd5d3e114c63c2",
-    "configtool @ git+https://github.com/jakeogh/configtool@7f11d15c3cdef9e0076a9d427bdadd8ab7b7a405",
-    "globalverbose @ git+https://github.com/jakeogh/globalverbose@8c87672d58165f0733e5780a8416e8627af87476",
+    "asserttool @ git+https://github.com/jakeogh/asserttool@4bd23a06c2161e488415acde89c29537e6720cc1",
+    "click-auto-help @ git+https://github.com/jakeogh/click-auto-help@c53f57c78529a51ae9b03f579d7ee6f2d63ca03a",
+    "clicktool @ git+https://github.com/jakeogh/clicktool@a9894f9d3a06701c5f73cd8b2794028042c9b420",
+    "configtool @ git+https://github.com/jakeogh/configtool@8a4ea7e2740ceb52b8b93684fe803c2461c9f0ed",
+    "globalverbose @ git+https://github.com/jakeogh/globalverbose@59abc758c18c0b85e9e61c1e14e5a64a81bb220e",
     "pyfft @ git+https://github.com/jakeogh/pyfft@e33b39dd80a4c2758549ebc36721ef679cade79c",
-    "unmp @ git+https://github.com/jakeogh/unmp@a07af9a8062ac1c35a892b2d15b24e11f0f0c80d",
+    "unmp @ git+https://github.com/jakeogh/unmp@7272e41db895729d117aa6f1720788c8f88f7476",
     "iio-pixel-settle-estimator @ git+ssh://git@github.com/DentonGroup/iio-pixel-settle-estimator@e3c5dcbdab81ef4f6e53fc96bfd6f77d508c8943",
 ]
 license = "ISC"
