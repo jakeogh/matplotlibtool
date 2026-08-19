@@ -1,17 +1,29 @@
 [build-system]
-requires = ["setuptools>=61.0", "tomlkit"]
-build-backend = "pep508_url_version_backend"
-backend-path = ["."]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "matplotlibtool"
-version = "1!0.0.1787106656"
+version = "1!0.0.1787107933"
 description = "2D and 3D matplotlib plotting lib for structured arrays"
 authors = [
     { name = "Justin Keogh", email = "github.com@v6y.net" },
 ]
-# filled in automatically
-dependencies = []
+dependencies = [
+    "click",
+    "matplotlib",
+    "numpy",
+    "pint",
+    "vispy",
+    "asserttool @ git+https://github.com/jakeogh/asserttool@40a10862bff94e0211b9d690e5451d268b9d531a",
+    "click-auto-help @ git+https://github.com/jakeogh/click-auto-help@a39b846877060a6c23c66f7a3ed7b496e7702232",
+    "clicktool @ git+https://github.com/jakeogh/clicktool@ce7e9ab2129069379383aa9be5cd5d3e114c63c2",
+    "configtool @ git+https://github.com/jakeogh/configtool@7f11d15c3cdef9e0076a9d427bdadd8ab7b7a405",
+    "globalverbose @ git+https://github.com/jakeogh/globalverbose@8c87672d58165f0733e5780a8416e8627af87476",
+    "pyfft @ git+https://github.com/jakeogh/pyfft@e33b39dd80a4c2758549ebc36721ef679cade79c",
+    "unmp @ git+https://github.com/jakeogh/unmp@a07af9a8062ac1c35a892b2d15b24e11f0f0c80d",
+    "iio-pixel-settle-estimator @ git+ssh://git@github.com/DentonGroup/iio-pixel-settle-estimator@e3c5dcbdab81ef4f6e53fc96bfd6f77d508c8943",
+]
 license = "ISC"
 requires-python = ">=3.11"
 
@@ -34,17 +46,3 @@ exclude = [
 matplotlibtool = [
     "py.typed",
 ]
-
-[tool.pep508-url-version-backend]
-dependencies-indexed = ["pint", "asserttool>=1!0.0.1785542140", "click-auto-help>=1!0.0.1784680961", "clicktool>=1!0.0.1785930957", "configtool>=1!0.0.1785931859", "globalverbose>=1!0.0.1784686617", "pyfft>=1!0.0.1785928806", "unmp>=1!0.0.1785929992"]
-dependencies-git = [
-	"pint",
-	"asserttool @ git+https://github.com/jakeogh/asserttool",
-	"click-auto-help @ git+https://github.com/jakeogh/click-auto-help",
-	"clicktool @ git+https://github.com/jakeogh/clicktool",
-	"configtool @ git+https://github.com/jakeogh/configtool",
-	"globalverbose @ git+https://github.com/jakeogh/globalverbose",
-	"iio-pixel-settle-estimator @ git+ssh://git@github.com/DentonGroup/iio-pixel-settle-estimator",
-	"pyfft @ git+https://github.com/jakeogh/pyfft",
-	"unmp @ git+https://github.com/jakeogh/unmp"]
-index-urls = ["jakeogh.github.io", "pip-index"]
