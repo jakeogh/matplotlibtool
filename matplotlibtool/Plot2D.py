@@ -344,8 +344,7 @@ class Plot2D(QMainWindow):
         self.base_ylim = bounds.ylim
 
         self.view_manager.apply(bounds)
-        self._update_plot()
-        self.canvas.draw_idle()
+        self.request_render()
         if record:
             self.view_history.record(bounds, self.display_space, coalesce)
             self._sync_history_buttons()
@@ -631,8 +630,7 @@ class Plot2D(QMainWindow):
             self.fit_view()
 
         self.event_handlers.refresh_pixel_dc()
-        self._update_plot()
-        self.canvas.draw_idle()
+        self.request_render()
 
         self.control_bar_integration.refresh_plot_selector()
         self.control_bar_integration.sync_controls_to_selection()
@@ -849,30 +847,40 @@ class Plot2D(QMainWindow):
         if not self.interactions.panning and not self.interactions.drawing_zoom_box:
             self.point_hover.on_hover_motion(event)
 
+    def request_render(self) -> None:
+        """Re-render and schedule a draw, unless the window is hidden.
+
+        A hidden window's render is thrown away: nothing displays it, and
+        the first showEvent, or a file render, renders once with everything
+        in place. Nine fields loaded one by one were re-rendering an
+        ever-growing pile per add for nothing.
+        """
+        if not self.isVisible():
+            return
+        self._update_plot()
+        self.canvas.draw_idle()
+
     def _on_plot_added(self, plot_index: int):
         plot = self.plot_manager.plots[plot_index]
         if plot.viewport_track and not self.control_bar_manager.is_gpio_checked():
             # a lane added while GPIO is unchecked honours the checkbox
             self.plot_manager.set_plot_visibility(plot_index, False)
-        self._update_plot()
-        self.canvas.draw_idle()
+        self.request_render()
 
     def _on_plot_visibility_changed(self, plot_index: int, visible: bool):
         self.event_handlers.refresh_pixel_dc()
-        self._update_plot()
-        self.canvas.draw_idle()
+        self.request_render()
 
     def _on_plots_changed(self):
         self.control_bar_integration.refresh_plot_selector()
-        self._update_plot()
-        self.canvas.draw_idle()
+        self.request_render()
 
     def _on_plot_selection_changed(self, plot_index: int):
         self.control_bar_integration.sync_controls_to_selection()
 
     def _on_plot_properties_changed(self, plot_index: int):
-        self._update_plot()
-        self.canvas.draw_idle()
+        # naming a plot during registration is a property change too
+        self.request_render()
 
     def _on_view_changed(self):
         self.control_bar_integration.update_view_bounds_display()
@@ -889,6 +897,10 @@ class Plot2D(QMainWindow):
 
             if self._custom_bounds_provided:
                 print("[INFO] Skipping auto-fit due to custom view bounds")
+                # renders are suppressed until the window exists, so the
+                # bounds given at construction render here
+                self._update_plot()
+                self.canvas.draw_idle()
                 return
 
             if self.plot_manager.get_visible_plots():
@@ -1097,6 +1109,9 @@ class Plot2D(QMainWindow):
             filepath = filepath.with_suffix(".png")
 
         self.set_dark_mode(self.dark_mode)
+        # renders are suppressed while the window is hidden; a file render
+        # never shows one, so render explicitly before saving
+        self._update_plot()
         self.canvas.draw()
 
         self.fig.savefig(

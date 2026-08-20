@@ -119,8 +119,7 @@ class ArrayFieldIntegration:
             state = "enabled" if enabled else "disabled"
             print(f"[INFO] Field '{field_name}' {state} (plot {plot_index})")
 
-        self.viewer._update_plot()
-        self.viewer.canvas.draw_idle()
+        self.viewer.request_render()
         self.viewer.control_bar_integration.refresh_plot_selector()
         self.panel.update_button_label()
 
@@ -196,8 +195,7 @@ class ArrayFieldIntegration:
 
         self.viewer.control_bar_integration.refresh_plot_selector()
         if not self.viewer.event_handlers.recompute_pixel_dc():
-            self.viewer._update_plot()
-            self.viewer.canvas.draw_idle()
+            self.viewer.request_render()
 
     def set_multiplier(
         self,
@@ -217,8 +215,7 @@ class ArrayFieldIntegration:
             return
 
         self.viewer.plot_manager.plots[plot_index].y_scale = value
-        self.viewer._update_plot()
-        self.viewer.canvas.draw_idle()
+        self.viewer.request_render()
 
     # ---------- plot creation ----------
 

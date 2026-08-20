@@ -119,9 +119,8 @@ class PlotGroupContext:
         # IMPORTANT: Select the newly created group so it becomes the default in the dropdown
         self.viewer.plot_manager.select_group(group_id)
 
-        # Final render
-        self.viewer._update_plot()
-        self.viewer.canvas.draw_idle()
+        # Final render, skipped while the window is hidden
+        self.viewer.request_render()
 
         # Update UI
         self.viewer.control_bar_integration.refresh_plot_selector()

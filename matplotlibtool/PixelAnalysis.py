@@ -251,10 +251,8 @@ def _crosstalk(
     gains = np.full(len(starts), np.nan)
     biases = np.full(len(starts), np.nan)
     sigmas = np.full(len(starts), np.nan)
-    for i, st in enumerate(starts):
-        if st >= settled_lo:
-            continue
-        error = matrix[:, st:end].mean(axis=1) - settled
+    valid = starts < settled_lo
+    if valid.any():
         if step.min() == step.max():
             # every pixel stepped by the same amount, so the crosstalk slope
             # has nothing to lever against and the fit is singular
@@ -262,9 +260,35 @@ def _crosstalk(
                 "crosstalk: pixel to pixel steps are all equal, so there is no "
                 "gradient to fit"
             )
-        gains[i], biases[i] = np.polyfit(step, error, 1)
+        # every start's tail mean from one cumulative sum instead of a fresh
+        # mean per start, and every regression in closed form on the shared
+        # abscissa, instead of a python loop of slices, means and polyfits
+        m64 = matrix[:, :end].astype(np.float64)
+        csum = np.zeros((m64.shape[0], end + 1))
+        np.cumsum(m64, axis=1, out=csum[:, 1:])
+        vstarts = starts[valid]
+        widths = (end - vstarts).astype(np.float64)
+        errors = (csum[:, end][:, None] - csum[:, vstarts]) / widths
+        errors -= settled[:, None]
+
+        count = float(len(step))
+        s_x = float(step.sum())
+        s_xx = float(np.dot(step, step))
+        s_y = errors.sum(axis=0)
+        s_xy = step @ errors
+        denominator = count * s_xx - s_x * s_x
+        slope = (count * s_xy - s_x * s_y) / denominator
+        gains[valid] = slope
+        biases[valid] = (s_y - slope * s_x) / count
+
         # averaging each pixel over its frames leaves the part that repeats
-        sigmas[i] = float(np.std([error[g].mean() for g in per_pixel]))
+        group_starts = np.concatenate(([0], bounds))
+        group_sizes = np.diff(np.concatenate((group_starts, [len(order)])))
+        pixel_means = (
+            np.add.reduceat(errors[order], group_starts, axis=0)
+            / group_sizes[:, None]
+        )
+        sigmas[valid] = pixel_means.std(axis=0)
     return CrosstalkCurve(
         start=starts, lag_gain=gains, mean_bias=biases, bias_sigma=sigmas
     )
