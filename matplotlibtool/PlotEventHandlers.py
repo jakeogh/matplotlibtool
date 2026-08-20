@@ -164,16 +164,28 @@ class PlotEventHandlers:
             plot_index = self.viewer.plot_manager.selected_plot_index
             self.viewer.plot_manager.set_plot_visibility(plot_index, visible)
 
-    def on_save_figure(self):
-        """Auto-save figure to /delme with timestamp."""
+    def _output_target(self, suffix: str, fallback_stem: str) -> Path:
+        """A timestamped output path beside the capture this viewer shows.
+
+        The navigable source anchors the main window; a child window
+        carries the capture it derives from in save_beside. With neither,
+        /delme keeps the old behaviour.
+        """
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        anchor = self.viewer.source_file or self.viewer.save_beside
+        if anchor is not None:
+            return anchor.parent / f"{anchor.stem}_{timestamp}{suffix}"
         output_dir = Path("/delme")
         output_dir.mkdir(parents=True, exist_ok=True)
-        filepath = output_dir / f"autosave_figure_{timestamp}.jpg"
+        return output_dir / f"{fallback_stem}_{timestamp}{suffix}"
+
+    def on_save_figure(self):
+        """Save the figure beside the source capture."""
+        filepath = self._output_target("_figure.jpg", "autosave_figure")
 
         with self.viewer.busy_manager.busy_operation("Saving figure"):
             self.viewer._render_to_file(filepath, dpi=300)
-            print(f"[INFO] Figure auto-saved to: {filepath}")
+            print(f"[INFO] Figure saved: {filepath}")
 
     def on_screenshot(self) -> None:
         """Save a full window screenshot beside the source capture.
@@ -182,14 +194,7 @@ class PlotEventHandlers:
         so the file records the capture exactly as it was being read. A
         viewer with no source file falls back to /delme.
         """
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        source = self.viewer.source_file
-        if source is not None:
-            filepath = source.parent / f"{source.stem}_{timestamp}_screenshot.png"
-        else:
-            output_dir = Path("/delme")
-            output_dir.mkdir(parents=True, exist_ok=True)
-            filepath = output_dir / f"screenshot_{timestamp}.png"
+        filepath = self._output_target("_screenshot.png", "screenshot")
         pixmap = self.viewer.grab()
         if not pixmap.save(str(filepath), "PNG"):
             raise RuntimeError(f"screenshot: could not write {filepath}")
@@ -202,16 +207,7 @@ class PlotEventHandlers:
         pm = self.viewer.plot_manager
         y_mgr = self.viewer.view_manager.secondary_axis_manager.y_axis_manager
 
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        source = self.viewer.source_file
-        if source is not None:
-            # beside the capture it came from, named after it
-            output_dir = source.parent
-            filepath = output_dir / f"{source.stem}_{timestamp}.csv"
-        else:
-            output_dir = Path("/delme")
-            output_dir.mkdir(parents=True, exist_ok=True)
-            filepath = output_dir / f"autosave_data_{timestamp}.csv"
+        filepath = self._output_target(".csv", "autosave_data")
 
         with self.viewer.busy_manager.busy_operation("Saving data"):
             rows = 0
@@ -1024,6 +1020,8 @@ class PlotEventHandlers:
             dark_mode=self.viewer.dark_mode,
             embedded=True,
         )
+        # a child window of a capture saves its outputs beside that capture
+        window.save_beside = self.viewer.source_file or self.viewer.save_beside
         window.add_plot(
             arr,
             x_field="index",
@@ -1073,6 +1071,8 @@ class PlotEventHandlers:
             dark_mode=self.viewer.dark_mode,
             embedded=True,
         )
+        # a child window of a capture saves its outputs beside that capture
+        window.save_beside = self.viewer.source_file or self.viewer.save_beside
         window.add_plot(
             arr,
             x_field="frequency",

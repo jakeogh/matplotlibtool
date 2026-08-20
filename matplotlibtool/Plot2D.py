@@ -173,6 +173,10 @@ class Plot2D(QMainWindow):
         # the file the plots were loaded from, when there was exactly one;
         # anchors previous/next navigation through its folder
         self.source_file: Path | None = None
+        # where Save CSV, Save Figure, and Screenshot land when this viewer
+        # has no navigable source of its own: a spectrum window inherits the
+        # capture behind the plot it was opened from
+        self.save_beside: Path | None = None
         # notified with the new path after every navigation swap; a client
         # hangs its sidecar recalibration here
         self.source_file_changed: Callable[[Path], None] | None = None

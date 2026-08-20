@@ -541,7 +541,8 @@ class ControlBarManager:
         save_data_btn.setMaximumWidth(80)
         save_data_btn.setToolTip(
             "Write the visible plots' samples inside the current x window to a "
-            "timestamped CSV in /delme, with acquisition and axis metadata in "
+            "timestamped CSV beside the loaded capture, with acquisition "
+            "and axis metadata in "
             "the header."
         )
         save_data_btn.clicked.connect(self.signals.saveDataRequested.emit)
