@@ -50,6 +50,10 @@ class ViewportStatsManager:
         # when set, each row also carries the peak-to-peak span in raw ADC
         # codes, before the secondary axis transform
         self.show_adc_pp = False
+        # converter word length; with it the code span also reads as the
+        # bits it exercises, log2 of the span out of the full word. That is
+        # range-spanned bits, not ENOB.
+        self.adc_bits: int | None = None
         self._text = None
         self._bottom = self.BASE_BOTTOM
 
@@ -119,7 +123,7 @@ class ViewportStatsManager:
             f"  min={y_min * factor:.5g}{u}"
             f"  max={y_max * factor:.5g}{u}"
             f"  pp={pp * factor:.5g}{u}"
-            f"{'' if adc_pp is None else f'  adcpp={adc_pp:.6g}'}"
+            f"{self._adc_pp_piece(adc_pp)}"
             f"  mean={mean * factor:.5g}{u}"
             f"  med={median * factor:.5g}{u}"
             f"  rms={rms * factor:.5g}{u}"
@@ -135,6 +139,14 @@ class ViewportStatsManager:
         if self.voltage_offset is not None:
             return f"  offset={self.voltage_offset:g}V"
         return ""
+
+    def _adc_pp_piece(self, adc_pp: float | None) -> str:
+        if adc_pp is None:
+            return ""
+        piece = f"  adcpp={adc_pp:.6g}"
+        if self.adc_bits is not None and adc_pp > 0.0:
+            piece += f" ({math.log2(adc_pp):.4g}/{self.adc_bits} bits)"
+        return piece
 
     def update(self, xlim: tuple[float, float]) -> None:
         if not self.enabled:
