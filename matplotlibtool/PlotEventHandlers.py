@@ -753,6 +753,8 @@ class PlotEventHandlers:
             self.viewer.control_bar_manager.parent,
             lanes=lanes,
             on_toggle=self._on_gpio_lane_toggled,
+            line_width=self.viewer.gpio_line_width,
+            on_line_width=self.viewer.set_gpio_line_width,
         )
         # WA_DeleteOnClose destroys the widget however it closes; a stale
         # reference here would be a deleted object on the next click

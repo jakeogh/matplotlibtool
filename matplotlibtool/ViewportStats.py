@@ -44,6 +44,9 @@ class ViewportStatsManager:
         # False marks every statistics row (uncalibrated): the code-to-unit
         # mapping is nominal rather than referenced to a known input voltage
         self.calibrated = True
+        # the known reference on the ADC input connectors, when one was given;
+        # listed at the end of every statistics row
+        self.voltage_offset: float | None = None
         self._text = None
         self._bottom = self.BASE_BOTTOM
 
@@ -105,7 +108,7 @@ class ViewportStatsManager:
         factor = 1.0
         if config is not None:
             _, _, unit, factor = config.get_display_values(y_min, y_max)
-        u = f" {unit}" if unit else ""
+        u = unit
 
         return (
             f"{name}: N={n}"
@@ -116,10 +119,17 @@ class ViewportStatsManager:
             f"  med={median * factor:.5g}{u}"
             f"  rms={rms * factor:.5g}{u}"
             f"  sd={sd * factor:.5g}{u}"
-            f"  snr={snr:.4g} dB"
+            f"  snr={snr:.4g}dB"
             f"  cf={cf:.4g}"
-            f"{'' if self.calibrated else '  (uncalibrated)'}"
+            f"{self._suffix()}"
         )
+
+    def _suffix(self) -> str:
+        if not self.calibrated:
+            return "  (uncalibrated)"
+        if self.voltage_offset is not None:
+            return f"  offset={self.voltage_offset:g}V"
+        return ""
 
     def update(self, xlim: tuple[float, float]) -> None:
         if not self.enabled:

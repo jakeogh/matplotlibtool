@@ -752,6 +752,16 @@ class ControlBarManager:
         layout.addWidget(gpio_chk)
         self.widgets["gpio_chk"] = gpio_chk
 
+        gpio_cfg_btn = QPushButton("Configure")
+        gpio_cfg_btn.setMaximumWidth(80)
+        gpio_cfg_btn.setToolTip(
+            "Choose which GPIO lines appear and their line width. A hidden "
+            "line gives up its lane and the stack closes the gap."
+        )
+        gpio_cfg_btn.clicked.connect(self.signals.gpioConfigureRequested.emit)
+        layout.addWidget(gpio_cfg_btn)
+        self.widgets["gpio_configure_btn"] = gpio_cfg_btn
+
         autocolor_chk = QCheckBox("Autocolor")
         autocolor_chk.setToolTip(
             "When every in-view point of a plot shares one color value (a "
@@ -763,16 +773,6 @@ class ControlBarManager:
         autocolor_chk.toggled.connect(self.signals.autocolorToggled.emit)
         layout.addWidget(autocolor_chk)
         self.widgets["autocolor_chk"] = autocolor_chk
-
-        gpio_cfg_btn = QPushButton("Configure")
-        gpio_cfg_btn.setMaximumWidth(80)
-        gpio_cfg_btn.setToolTip(
-            "Choose which GPIO lines appear. A hidden line gives up its "
-            "lane and the stack closes the gap."
-        )
-        gpio_cfg_btn.clicked.connect(self.signals.gpioConfigureRequested.emit)
-        layout.addWidget(gpio_cfg_btn)
-        self.widgets["gpio_configure_btn"] = gpio_cfg_btn
 
         peaks_chk = QCheckBox("Peaks")
         peaks_chk.setToolTip(

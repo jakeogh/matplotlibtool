@@ -161,6 +161,8 @@ class Plot2D(QMainWindow):
         self.event_handlers = PlotEventHandlers(self)
 
         self.autocolor_enabled = True
+        # stroke width of the GPIO logic lanes; the Configure dialog adjusts it
+        self.gpio_line_width = 0.75
 
         # Performance
         self.max_display_points = 100_000
@@ -527,6 +529,8 @@ class Plot2D(QMainWindow):
         Returns:
             Transform parameters for the added plot
         """
+        if viewport_track:
+            line_width = self.gpio_line_width
         processed = self.plot_processor.process_structured_array(
             data,
             x_field=x_field,
@@ -789,6 +793,14 @@ class Plot2D(QMainWindow):
             )
 
     # ===== appearance =====
+
+    def set_gpio_line_width(self, width: float) -> None:
+        """Adopt a new stroke width for every GPIO logic lane."""
+        self.gpio_line_width = width
+        for plot in self.plot_manager.plots:
+            if plot.viewport_track:
+                plot.line_width = width
+        self.request_render()
 
     def set_sample_rate(self, rate_hz: float | None) -> None:
         """Set the x-axis sample rate as if typed into the Rate box.
