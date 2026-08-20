@@ -59,6 +59,7 @@ class ControlBarSignals(QObject):
     pixelsRequested = pyqtSignal()
     pixelDcToggled = pyqtSignal(bool)
     gpioToggled = pyqtSignal(bool)
+    autocolorToggled = pyqtSignal(bool)
     gpioConfigureRequested = pyqtSignal()
     peaksToggled = pyqtSignal(bool)
     saveDataRequested = pyqtSignal()
@@ -750,6 +751,18 @@ class ControlBarManager:
         gpio_chk.toggled.connect(self.signals.gpioToggled.emit)
         layout.addWidget(gpio_chk)
         self.widgets["gpio_chk"] = gpio_chk
+
+        autocolor_chk = QCheckBox("Autocolor")
+        autocolor_chk.setToolTip(
+            "When every in-view point of a plot shares one color value (a "
+            "single pixel filling the window), recolor its samples by "
+            "distance from the mean of the in-view data so outliers stand "
+            "out on a DC line."
+        )
+        autocolor_chk.setChecked(True)
+        autocolor_chk.toggled.connect(self.signals.autocolorToggled.emit)
+        layout.addWidget(autocolor_chk)
+        self.widgets["autocolor_chk"] = autocolor_chk
 
         gpio_cfg_btn = QPushButton("Configure")
         gpio_cfg_btn.setMaximumWidth(80)

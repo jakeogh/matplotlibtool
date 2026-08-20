@@ -66,6 +66,7 @@ class ControlBarIntegration:
             "pixelsRequested": self.viewer.event_handlers.on_pixels,
             "pixelDcToggled": self.viewer.event_handlers.on_pixel_dc_toggled,
             "gpioToggled": self.viewer.event_handlers.on_gpio_toggled,
+            "autocolorToggled": self.viewer.event_handlers.on_autocolor_toggled,
             "gpioConfigureRequested": self.viewer.event_handlers.on_gpio_configure,
             "peaksToggled": self.viewer.event_handlers.on_peaks_toggled,
             "saveDataRequested": self.viewer.event_handlers.on_save_data,

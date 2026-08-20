@@ -56,6 +56,7 @@ class Matplotlib2DRenderer:
         view_xlim: tuple[float, float],
         view_ylim: tuple[float, float],
         color_ranges: Sequence[tuple[float, float] | None],
+        color_overrides: Sequence[np.ndarray | None],
         cull_margin: float,
         max_display_points: int,
         max_line_segments: int,
@@ -65,7 +66,9 @@ class Matplotlib2DRenderer:
         Render all plots at the given view.
 
         color_ranges[i] is the (vmin, vmax) normalization range for plot i,
-        or None for plots without color data.
+        or None for plots without color data. color_overrides[i] is a
+        full-length [0, 1] color array that replaces the plot's own color
+        data for this render, or None to use it unchanged.
         """
         if not self.plot_initialized:
             self._initialize_axes(ax)
@@ -91,9 +94,20 @@ class Matplotlib2DRenderer:
         # subsample: counting the x-and-y culled or subsampled points makes
         # the diameter jump when a channel leaves the y window or a subsample
         # threshold is crossed, instead of scaling linearly with zoom.
-        prepared: list[tuple[Overlay, tuple[float, float] | None, np.ndarray, np.ndarray] | None] = []
+        prepared: list[
+            tuple[
+                Overlay,
+                tuple[float, float] | None,
+                np.ndarray | None,
+                np.ndarray,
+                np.ndarray,
+            ]
+            | None
+        ] = []
         max_x_count = 0
-        for plot, color_range in zip(plots, color_ranges):
+        for plot, color_range, color_override in zip(
+            plots, color_ranges, color_overrides
+        ):
             if not plot.visible or len(plot.points) == 0:
                 if plot.scatter_artist is not None:
                     plot.scatter_artist.set_visible(False)
@@ -119,7 +133,7 @@ class Matplotlib2DRenderer:
                 step = -(-idx.size // max_display_points)  # ceil div
                 idx = idx[::step]
 
-            prepared.append((plot, color_range, points, idx))
+            prepared.append((plot, color_range, color_override, points, idx))
 
         shared_size = auto_point_size(ax, max_x_count)
         for plot in plots:
@@ -129,11 +143,13 @@ class Matplotlib2DRenderer:
         for entry in prepared:
             if entry is None:
                 continue
-            plot, color_range, points, idx = entry
+            plot, color_range, color_override, points, idx = entry
 
             display_points = points[idx]
 
-            if plot.color_data is not None and color_range is not None:
+            if color_override is not None:
+                display_colors = color_override[idx]
+            elif plot.color_data is not None and color_range is not None:
                 display_colors = plot.normalized_colors(*color_range)[idx]
             else:
                 display_colors = None

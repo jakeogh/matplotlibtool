@@ -725,6 +725,12 @@ class PlotEventHandlers:
         """Show or hide the GPIO logic lanes, keeping the per-line choices."""
         self._apply_gpio_visibility(master=checked)
 
+    def on_autocolor_toggled(self, checked: bool) -> None:
+        """Toggle distance-from-mean recoloring for single-color views."""
+        self.viewer.autocolor_enabled = checked
+        self.viewer._update_plot()
+        self.viewer.canvas.draw_idle()
+
     def on_gpio_configure(self) -> None:
         """One checkbox per GPIO line; the lane stack reflows as they change."""
         if self._gpio_dialog is not None:

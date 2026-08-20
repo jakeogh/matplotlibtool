@@ -41,6 +41,7 @@ from PyQt6.QtWidgets import QVBoxLayout
 from PyQt6.QtWidgets import QWidget
 
 from .ArrayFieldIntegration import ArrayFieldIntegration
+from .AutoColor import autocolor_overrides
 from .AxisSecondaryIntegration import AxisSecondaryIntegration
 from .BusyIndicatorManager import BusyIndicatorManager
 from .color_paletts import COLOR_PALETTES
@@ -158,6 +159,8 @@ class Plot2D(QMainWindow):
         self.grid_manager.set_grid_colors(self.grid_color, self.axes_grid_color)
 
         self.event_handlers = PlotEventHandlers(self)
+
+        self.autocolor_enabled = True
 
         # Performance
         self.max_display_points = 100_000
@@ -719,6 +722,12 @@ class Plot2D(QMainWindow):
             view_xlim=current_bounds.xlim,
             view_ylim=current_bounds.ylim,
             color_ranges=color_ranges,
+            color_overrides=autocolor_overrides(
+                all_plots,
+                xlim=current_bounds.xlim,
+                ylim=current_bounds.ylim,
+                enabled=self.autocolor_enabled,
+            ),
             cull_margin=self.cull_margin,
             max_display_points=self.max_display_points,
             max_line_segments=self.max_line_segments,
