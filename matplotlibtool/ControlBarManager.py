@@ -536,7 +536,7 @@ class ControlBarManager:
         layout.addWidget(save_fig_btn)
         self.widgets["save_fig_btn"] = save_fig_btn
 
-        save_data_btn = QPushButton("Save Data")
+        save_data_btn = QPushButton("Save CSV")
         save_data_btn.setMaximumWidth(80)
         save_data_btn.setToolTip(
             "Write the visible plots' samples inside the current x window to a "

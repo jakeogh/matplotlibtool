@@ -148,7 +148,13 @@ class ArrayFieldIntegration:
             elif field not in wanted and visible:
                 self.set_field_enabled(array_index, field, False)
 
-    def replace_array_data(self, array_index: int, data: np.ndarray) -> None:
+    def replace_array_data(
+        self,
+        array_index: int,
+        data: np.ndarray,
+        *,
+        recompute_pixel_dc: bool = True,
+    ) -> None:
         """
         Swap the array behind every plot of this array for a new capture.
 
@@ -194,7 +200,7 @@ class ArrayFieldIntegration:
             )
 
         self.viewer.control_bar_integration.refresh_plot_selector()
-        if not self.viewer.event_handlers.recompute_pixel_dc():
+        if not (recompute_pixel_dc and self.viewer.event_handlers.recompute_pixel_dc()):
             self.viewer.request_render()
 
     def set_multiplier(

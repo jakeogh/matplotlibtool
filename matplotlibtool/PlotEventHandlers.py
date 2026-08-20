@@ -176,16 +176,22 @@ class PlotEventHandlers:
             print(f"[INFO] Figure auto-saved to: {filepath}")
 
     def on_save_data(self):
-        """Auto-save the visible plots' in-window samples to /delme as CSV."""
+        """Save the in-window samples as CSV beside the source capture."""
         bounds = self.viewer.view_manager.get_current_bounds()
         xlim = bounds.xlim
         pm = self.viewer.plot_manager
         y_mgr = self.viewer.view_manager.secondary_axis_manager.y_axis_manager
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_dir = Path("/delme")
-        output_dir.mkdir(parents=True, exist_ok=True)
-        filepath = output_dir / f"autosave_data_{timestamp}.csv"
+        source = self.viewer.source_file
+        if source is not None:
+            # beside the capture it came from, named after it
+            output_dir = source.parent
+            filepath = output_dir / f"{source.stem}_{timestamp}.csv"
+        else:
+            output_dir = Path("/delme")
+            output_dir.mkdir(parents=True, exist_ok=True)
+            filepath = output_dir / f"autosave_data_{timestamp}.csv"
 
         with self.viewer.busy_manager.busy_operation("Saving data"):
             rows = 0

@@ -54,6 +54,9 @@ class ViewportStatsManager:
         # bits it exercises, log2 of the span out of the full word. That is
         # range-spanned bits, not ENOB.
         self.adc_bits: int | None = None
+        # one line above the statistics rows for capture context, e.g. the
+        # acquisition description and any pin overrides
+        self.header: str | None = None
         self._text = None
         self._bottom = self.BASE_BOTTOM
 
@@ -172,6 +175,8 @@ class ViewportStatsManager:
             rows.append(self._row(name, y, config, adc_pp))
         if overflow:
             rows.append(f"... +{overflow} more")
+        if self.header:
+            rows.insert(0, self.header)
 
         self._set_bottom(self.BASE_BOTTOM + self.ROW_HEIGHT * len(rows))
 

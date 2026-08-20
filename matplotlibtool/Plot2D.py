@@ -24,6 +24,7 @@ from concurrent.futures import Future
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from pathlib import Path
+from time import perf_counter
 from time import time
 
 import math
@@ -168,7 +169,7 @@ class Plot2D(QMainWindow):
 
         self.autocolor_enabled = True
         # stroke width of the GPIO logic lanes; the Configure dialog adjusts it
-        self.gpio_line_width = 0.75
+        self.gpio_line_width = 0.6
         # the file the plots were loaded from, when there was exactly one;
         # anchors previous/next navigation through its folder
         self.source_file: Path | None = None
@@ -686,13 +687,19 @@ class Plot2D(QMainWindow):
         """Show exactly these fields of the array, hiding the rest."""
         self.array_field_integration.set_visible_fields(array_index, fields)
 
-    def replace_array_data(self, data, *, array_index: int = 0) -> None:
+    def replace_array_data(
+        self, data, *, array_index: int = 0, recompute_pixel_dc: bool = True
+    ) -> None:
         """
         Swap the array behind every plot of this array for a new capture.
 
         The view, selection, visibility, and styling all survive the swap.
+        A caller replacing several arrays with one capture passes
+        recompute_pixel_dc=False and recomputes once itself.
         """
-        self.array_field_integration.replace_array_data(array_index, data)
+        self.array_field_integration.replace_array_data(
+            array_index, data, recompute_pixel_dc=recompute_pixel_dc
+        )
 
     def sync_auto_point_size(self) -> None:
         """
@@ -971,8 +978,10 @@ class Plot2D(QMainWindow):
             return
         # the decode can take seconds; the badge and wait cursor paint
         # before it blocks, so the button press visibly took
+        t_start = perf_counter()
         with self.busy_manager.busy_operation(f"Loading {target.name}"):
             data = self._navigation_data(target)
+            t_data = perf_counter()
             outgoing = self.array_field_integration.array_field_manager.get_array_info(0)
             if outgoing is not None and self.source_file.exists():
                 self.navigation_cache.put(
@@ -984,13 +993,23 @@ class Plot2D(QMainWindow):
                 for array_index in list(
                     self.array_field_integration.array_field_manager.array_fields
                 ):
-                    self.replace_array_data(data, array_index=array_index)
-        self.source_file = target
-        self._refresh_file_navigation()
+                    self.replace_array_data(
+                        data, array_index=array_index, recompute_pixel_dc=False
+                    )
+                # one analysis for the whole capture, not one per array
+                self.event_handlers.recompute_pixel_dc()
+                self.source_file = target
+                self._refresh_file_navigation()
+                if self.source_file_changed is not None:
+                    self.source_file_changed(target)
+        t_total = perf_counter() - t_start
+        print(
+            f"[nav] {target.name}: data {t_data - t_start:.2f}s, "
+            f"swap+analysis+render {t_total - (t_data - t_start):.2f}s, "
+            f"total {t_total:.2f}s",
+            file=sys.stderr,
+        )
         print(f"[INFO] loaded: {target.as_posix()}")
-        if self.source_file_changed is not None:
-            self.source_file_changed(target)
-        self._preload_next()
 
     def _adjacent_sibling(self, step: int) -> Path | None:
         """The nearest same-extension sibling on one side, by name order."""
@@ -1021,6 +1040,11 @@ class Plot2D(QMainWindow):
         """The target's array from cache, a finished preload, or a parse."""
         cached = self.navigation_cache.get(target)
         if cached is not None:
+            print(
+                f"[nav] cache hit {target.name} "
+                f"({cached.nbytes / 1e6:.1f} MB)",
+                file=sys.stderr,
+            )
             return cached
         if self._preload is not None and self._preload[0] == target.resolve():
             _, future = self._preload
@@ -1029,9 +1053,19 @@ class Plot2D(QMainWindow):
             self.navigation_cache.put(target, stat, data)
             refreshed = self.navigation_cache.get(target)
             if refreshed is not None:
+                print(
+                    f"[nav] preload hit {target.name} (decoded in background)",
+                    file=sys.stderr,
+                )
                 return refreshed
             # the file changed while the preload parsed it; fall through
+        t0 = perf_counter()
         stat, data = self._navigation_parse(target)
+        print(
+            f"[nav] decode {target.name} {perf_counter() - t0:.2f}s "
+            f"(no cache, no preload)",
+            file=sys.stderr,
+        )
         self.navigation_cache.put(target, stat, data)
         return data
 
@@ -1047,6 +1081,7 @@ class Plot2D(QMainWindow):
             return
         if self.navigation_cache.get(target) is not None:
             return
+        print(f"[nav] preload start {target.name}", file=sys.stderr)
         self._preload = (key, self._preload_executor.submit(self._navigation_parse, target))
 
     def _on_plot_added(self, plot_index: int):
@@ -1150,8 +1185,7 @@ class Plot2D(QMainWindow):
             )
 
         self.view_manager.secondary_axis_manager.configure_axis(config)
-        self._update_plot()
-        self.canvas.draw_idle()
+        self.request_render()
 
     # ===== file loaders =====
 

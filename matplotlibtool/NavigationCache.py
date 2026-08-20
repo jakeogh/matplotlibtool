@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import sys
 from collections import OrderedDict
 from pathlib import Path
 
@@ -65,9 +66,23 @@ class NavigationCache:
         """
         budget = int(self._available_bytes() * self.BUDGET_FRACTION)
         if data.nbytes > budget:
+            print(
+                f"[nav] cache skip {path.name}: {data.nbytes / 1e6:.1f} MB "
+                f"exceeds the {budget / 1e6:.0f} MB budget",
+                file=sys.stderr,
+            )
             return
         key = path.resolve()
         self._entries[key] = (stat, data)
         self._entries.move_to_end(key)
         while self.bytes_cached > budget:
-            self._entries.popitem(last=False)
+            evicted, (_, gone) = self._entries.popitem(last=False)
+            print(
+                f"[nav] cache evict {evicted.name} ({gone.nbytes / 1e6:.1f} MB)",
+                file=sys.stderr,
+            )
+        print(
+            f"[nav] cache store {path.name} ({data.nbytes / 1e6:.1f} MB, "
+            f"{self.bytes_cached / 1e6:.1f} MB of {budget / 1e6:.0f} MB budget)",
+            file=sys.stderr,
+        )
