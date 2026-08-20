@@ -9,6 +9,7 @@ from contextlib import contextmanager
 from PyQt6.QtCore import Qt
 from PyQt6.QtCore import QTimer
 from PyQt6.QtGui import QPalette
+from PyQt6.QtWidgets import QApplication
 from PyQt6.QtWidgets import QLabel
 
 
@@ -49,6 +50,7 @@ class BusyIndicatorManager:
         self.min_busy_time_ms = 1000
 
         self._pending_hide = False
+        self._operation_name = "Processing"
 
         self.original_palette = None
 
@@ -107,12 +109,19 @@ class BusyIndicatorManager:
 
         if self.busy_count == 1:
             self._pending_hide = False
+            # the outermost operation names the badge and owns the cursor
+            self._operation_name = operation_name
+            QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
 
-            if not self.is_busy:
-                if self.busy_delay_ms == 0:
-                    self._show_busy_immediate()
-                else:
-                    self.busy_timer.start(self.busy_delay_ms)
+            if self.is_busy:
+                # a previous badge lingering its minimum display would keep
+                # the old name; take it over for the new operation
+                self.min_busy_timer.stop()
+                self._apply_busy_style()
+            elif self.busy_delay_ms == 0:
+                self._show_busy_immediate()
+            else:
+                self.busy_timer.start(self.busy_delay_ms)
 
     def _end_busy(self, operation_name: str) -> None:
         """End a busy operation."""
@@ -120,6 +129,9 @@ class BusyIndicatorManager:
 
         if self.busy_count == 0:
             self.busy_timer.stop()
+            # the cursor releases with the work; the badge lingers its
+            # minimum display time so a fast operation is still seen
+            QApplication.restoreOverrideCursor()
 
             if self.is_busy:
                 self._pending_hide = True
@@ -149,7 +161,7 @@ class BusyIndicatorManager:
         busy_palette.setColor(QPalette.ColorRole.WindowText, Qt.GlobalColor.white)
         busy_palette.setColor(QPalette.ColorRole.Base, Qt.GlobalColor.black)
 
-        self.status_label.setText("BUSY")
+        self.status_label.setText(self._operation_name)
         self.status_label.setPalette(busy_palette)
         self.status_label.setAutoFillBackground(True)
 

@@ -921,15 +921,18 @@ class Plot2D(QMainWindow):
             print(f"[INFO] file navigation: no {which} {self.source_file.suffix} file")
             return
         target = siblings[index]
-        if self.navigation_loader is not None:
-            data = self.navigation_loader(target)
-        else:
-            data = self.file_loader_registry.load_files([str(target)])[0]
-        with self.render_hold():
-            for array_index in list(
-                self.array_field_integration.array_field_manager.array_fields
-            ):
-                self.replace_array_data(data, array_index=array_index)
+        # the decode can take seconds; the badge and wait cursor paint
+        # before it blocks, so the button press visibly took
+        with self.busy_manager.busy_operation(f"Loading {target.name}"):
+            if self.navigation_loader is not None:
+                data = self.navigation_loader(target)
+            else:
+                data = self.file_loader_registry.load_files([str(target)])[0]
+            with self.render_hold():
+                for array_index in list(
+                    self.array_field_integration.array_field_manager.array_fields
+                ):
+                    self.replace_array_data(data, array_index=array_index)
         self.source_file = target
         print(f"[INFO] loaded: {target.as_posix()}")
         if self.source_file_changed is not None:
