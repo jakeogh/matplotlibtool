@@ -41,6 +41,9 @@ class ViewportStatsManager:
     def __init__(self, viewer: Plot2D, *, enabled: bool = False) -> None:
         self.viewer = viewer
         self.enabled = enabled
+        # False marks every statistics row (uncalibrated): the code-to-unit
+        # mapping is nominal rather than referenced to a known input voltage
+        self.calibrated = True
         self._text = None
         self._bottom = self.BASE_BOTTOM
 
@@ -115,6 +118,7 @@ class ViewportStatsManager:
             f"  sd={sd * factor:.5g}{u}"
             f"  snr={snr:.4g} dB"
             f"  cf={cf:.4g}"
+            f"{'' if self.calibrated else '  (uncalibrated)'}"
         )
 
     def update(self, xlim: tuple[float, float]) -> None:
