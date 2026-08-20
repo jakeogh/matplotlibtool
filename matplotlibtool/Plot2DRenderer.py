@@ -22,24 +22,30 @@ from .Plot2DOverlay import Overlay
 
 
 # Markers are sized against the horizontal spacing of the data in the view:
-# the axes width over the largest number of points any one plot spans across
-# it. The diameter therefore scales linearly with horizontal zoom, and does
-# not change with vertical zoom, with a channel leaving the y window, or with
-# how many overlaid plots share the same x positions. The scatter size is an
-# area in points squared, hence the square of the diameter.
+# the axes width over the largest number of points any one plot has inside
+# the view window, margin excluded. The diameter follows that spacing when
+# the view is sparse and blends smoothly (hypot) into a one-pixel floor when
+# it is dense, so zooming never crosses a hard knee: no clipped plateau, no
+# sudden growth onset, and no change with vertical zoom, with a channel
+# leaving the y window, or with how many overlaid plots share the same x
+# positions. The scatter size is an area in points squared, hence the square
+# of the diameter.
 AUTO_FILL = 0.576       # fraction of the inter-point spacing a marker occupies
-AUTO_SIZE_MIN = 0.2
+AUTO_AREA_FLOOR = 0.6   # about a one-pixel dot at 100 dpi; dense views hold this
 AUTO_SIZE_MAX = 144.0   # 12 point diameter
 
 
 def auto_point_size(ax, drawn_count: int) -> float:
-    """Marker area for the given number of drawn points across the axes."""
+    """Marker area for the given number of in-view points across the axes."""
     if drawn_count <= 0:
-        return AUTO_SIZE_MIN
+        return AUTO_AREA_FLOOR
     width_px = ax.get_window_extent().width
     width_pt = width_px * 72.0 / ax.get_figure().dpi
-    diameter_pt = (width_pt / drawn_count) * AUTO_FILL
-    return float(np.clip(diameter_pt * diameter_pt, AUTO_SIZE_MIN, AUTO_SIZE_MAX))
+    diameter_pt = float(np.hypot(
+        (width_pt / drawn_count) * AUTO_FILL,
+        AUTO_AREA_FLOOR ** 0.5,
+    ))
+    return float(min(diameter_pt * diameter_pt, AUTO_SIZE_MAX))
 
 
 class Matplotlib2DRenderer:
@@ -90,10 +96,12 @@ class Matplotlib2DRenderer:
         colored_cmap: str | None = None
 
         # first pass: cull and subsample every visible plot. The auto marker
-        # size comes from the x extent alone, counted before the display
-        # subsample: counting the x-and-y culled or subsampled points makes
-        # the diameter jump when a channel leaves the y window or a subsample
-        # threshold is crossed, instead of scaling linearly with zoom.
+        # size comes from the x extent of the view alone, counted before the
+        # display subsample and without the cull margin: margin points would
+        # inflate the count by up to half again and shrink toward a data
+        # edge, making the size drift while panning; y-culled or subsampled
+        # counts make the diameter jump when a channel leaves the y window or
+        # a subsample threshold is crossed, instead of scaling with zoom.
         prepared: list[
             tuple[
                 Overlay,
@@ -119,7 +127,10 @@ class Matplotlib2DRenderer:
             x = points[:, 0]
             y = points[:, 1]
             mask_x = (x >= cx0) & (x <= cx1)
-            max_x_count = max(max_x_count, int(mask_x.sum()))
+            max_x_count = max(
+                max_x_count,
+                int(((x >= view_xlim[0]) & (x <= view_xlim[1])).sum()),
+            )
             mask = mask_x & (y >= cy0) & (y <= cy1)
             idx = np.flatnonzero(mask)
 
