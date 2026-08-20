@@ -20,6 +20,8 @@ from __future__ import annotations
 import sys
 from collections.abc import Callable
 from collections.abc import Iterable
+from concurrent.futures import Future
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from pathlib import Path
 from time import time
@@ -47,6 +49,7 @@ from .ArrayFieldIntegration import ArrayFieldIntegration
 from .AutoColor import autocolor_overrides
 from .AxisSecondaryIntegration import AxisSecondaryIntegration
 from .BusyIndicatorManager import BusyIndicatorManager
+from .NavigationCache import NavigationCache
 from .color_paletts import COLOR_PALETTES
 from .ControlBarIntegration import ControlBarIntegration
 from .ControlBarManager import ControlBarManager
@@ -180,6 +183,14 @@ class Plot2D(QMainWindow):
         # previous/next buttons truthful without polling
         self._folder_watcher = QFileSystemWatcher(self)
         self._folder_watcher.directoryChanged.connect(self._refresh_file_navigation)
+        # decoded neighbours, LRU-bounded by available memory, so stepping
+        # back and forth swaps instead of re-decoding; one background worker
+        # opportunistically parses the next file while the operator looks
+        self.navigation_cache = NavigationCache()
+        self._preload_executor = ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="nav-preload"
+        )
+        self._preload: tuple[Path, Future] | None = None
         self._render_holds = 0
 
         # Performance
@@ -909,6 +920,7 @@ class Plot2D(QMainWindow):
             self._folder_watcher.removePaths(watched)
         self._folder_watcher.addPath(str(self.source_file.parent))
         self._refresh_file_navigation()
+        self._preload_next()
 
     def _refresh_file_navigation(self, *_) -> None:
         """Grey the previous/next buttons against the folder as it is now.
@@ -932,35 +944,42 @@ class Plot2D(QMainWindow):
                     break
         self.control_bar_manager.widgets["file_prev_btn"].setEnabled(prev_exists)
         self.control_bar_manager.widgets["file_next_btn"].setEnabled(next_exists)
+        if next_exists:
+            # a next that just appeared is the one the operator will press for
+            self._preload_next()
 
     def load_adjacent_file(self, step: int) -> None:
         """Replace every array with the folder's previous or next capture.
 
         Siblings are the source file's folder listing of its own extension,
         sorted by name; step is -1 for previous, +1 for next. The ends do not
-        wrap. The navigation loader parses the target when set, so the
-        replacement carries the same fields as the arrays it swaps into;
-        the registered file loader stands in otherwise. The swap keeps the
-        view, selection, visibility, and styling, so the same window is
-        compared across captures.
+        wrap. Cached or preloaded neighbours swap immediately; otherwise the
+        navigation loader parses the target when set, so the replacement
+        carries the same fields as the arrays it swaps into, and the
+        registered file loader stands in otherwise. The swap keeps the view,
+        selection, visibility, and styling, so the same window is compared
+        across captures, and the outgoing capture is cached so the way back
+        is as fast as the way there.
         """
         if self.source_file is None:
             print("[INFO] file navigation: no source file registered")
             return
-        siblings = sorted(self.source_file.parent.glob(f"*{self.source_file.suffix}"))
-        index = [p.resolve() for p in siblings].index(self.source_file.resolve()) + step
-        if index < 0 or index >= len(siblings):
+        target = self._adjacent_sibling(step)
+        if target is None:
             which = "previous" if step < 0 else "next"
             print(f"[INFO] file navigation: no {which} {self.source_file.suffix} file")
             return
-        target = siblings[index]
         # the decode can take seconds; the badge and wait cursor paint
         # before it blocks, so the button press visibly took
         with self.busy_manager.busy_operation(f"Loading {target.name}"):
-            if self.navigation_loader is not None:
-                data = self.navigation_loader(target)
-            else:
-                data = self.file_loader_registry.load_files([str(target)])[0]
+            data = self._navigation_data(target)
+            outgoing = self.array_field_integration.array_field_manager.get_array_info(0)
+            if outgoing is not None and self.source_file.exists():
+                self.navigation_cache.put(
+                    self.source_file,
+                    NavigationCache.stat_key(self.source_file),
+                    outgoing["data"],
+                )
             with self.render_hold():
                 for array_index in list(
                     self.array_field_integration.array_field_manager.array_fields
@@ -971,6 +990,64 @@ class Plot2D(QMainWindow):
         print(f"[INFO] loaded: {target.as_posix()}")
         if self.source_file_changed is not None:
             self.source_file_changed(target)
+        self._preload_next()
+
+    def _adjacent_sibling(self, step: int) -> Path | None:
+        """The nearest same-extension sibling on one side, by name order."""
+        me = self.source_file.resolve()
+        best: Path | None = None
+        for sibling in sorted(self.source_file.parent.glob(f"*{self.source_file.suffix}")):
+            if sibling.resolve() == me:
+                continue
+            if step > 0 and sibling.name > self.source_file.name:
+                return sibling
+            if step < 0 and sibling.name < self.source_file.name:
+                best = sibling
+        return best
+
+    def _navigation_parse(self, path: Path) -> tuple[tuple[int, int], "np.ndarray"]:
+        """Parse a capture with the stat it had going in.
+
+        Runs on the preload worker as well as the GUI thread, so a
+        navigation loader must be a thread-safe function of the path; both
+        in-tree loaders are.
+        """
+        stat = NavigationCache.stat_key(path)
+        if self.navigation_loader is not None:
+            return stat, self.navigation_loader(path)
+        return stat, self.file_loader_registry.load_files([str(path)])[0]
+
+    def _navigation_data(self, target: Path) -> "np.ndarray":
+        """The target's array from cache, a finished preload, or a parse."""
+        cached = self.navigation_cache.get(target)
+        if cached is not None:
+            return cached
+        if self._preload is not None and self._preload[0] == target.resolve():
+            _, future = self._preload
+            self._preload = None
+            stat, data = future.result()
+            self.navigation_cache.put(target, stat, data)
+            refreshed = self.navigation_cache.get(target)
+            if refreshed is not None:
+                return refreshed
+            # the file changed while the preload parsed it; fall through
+        stat, data = self._navigation_parse(target)
+        self.navigation_cache.put(target, stat, data)
+        return data
+
+    def _preload_next(self) -> None:
+        """Parse the next capture in the background, once, if it is new."""
+        if self.source_file is None:
+            return
+        target = self._adjacent_sibling(1)
+        if target is None:
+            return
+        key = target.resolve()
+        if self._preload is not None and self._preload[0] == key:
+            return
+        if self.navigation_cache.get(target) is not None:
+            return
+        self._preload = (key, self._preload_executor.submit(self._navigation_parse, target))
 
     def _on_plot_added(self, plot_index: int):
         plot = self.plot_manager.plots[plot_index]
@@ -1163,6 +1240,7 @@ class Plot2D(QMainWindow):
             return
         self._shutdown_done = True
 
+        self._preload_executor.shutdown(wait=False, cancel_futures=True)
         self.timer.stop()
         self.clock_timer.stop()
         super().close()
