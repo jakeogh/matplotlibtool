@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "matplotlibtool"
-version = "1!0.0.1787120353"
+version = "1!0.0.1787205866"
 description = "2D and 3D matplotlib plotting lib for structured arrays"
 authors = [
     { name = "Justin Keogh", email = "github.com@v6y.net" },
@@ -20,7 +20,7 @@ dependencies = [
     "clicktool @ git+https://github.com/jakeogh/clicktool@a9894f9d3a06701c5f73cd8b2794028042c9b420",
     "configtool @ git+https://github.com/jakeogh/configtool@8a4ea7e2740ceb52b8b93684fe803c2461c9f0ed",
     "globalverbose @ git+https://github.com/jakeogh/globalverbose@59abc758c18c0b85e9e61c1e14e5a64a81bb220e",
-    "pyfft @ git+https://github.com/jakeogh/pyfft@e33b39dd80a4c2758549ebc36721ef679cade79c",
+    "pyfft @ git+https://github.com/jakeogh/pyfft@45e0a90f405da28d3ef58037b1b65591f450a3f0",
     "unmp @ git+https://github.com/jakeogh/unmp@7272e41db895729d117aa6f1720788c8f88f7476",
     "iio-pixel-settle-estimator @ git+ssh://git@github.com/DentonGroup/iio-pixel-settle-estimator@e3c5dcbdab81ef4f6e53fc96bfd6f77d508c8943",
 ]

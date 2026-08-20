@@ -65,6 +65,7 @@ from .ViewManager import ViewBounds
 from .ViewManager import X_PAD_RATIO
 from .ViewManager import Y_PAD_RATIO
 from .ViewManager import ViewManager
+from .ViewportStats import ViewportStatsManager
 
 
 class Plot2D(QMainWindow):
@@ -96,6 +97,7 @@ class Plot2D(QMainWindow):
         colormap: str = "turbo",
         draw_lines: bool = False,
         embedded: bool = False,
+        viewport_stats: bool = False,
     ):
         self._owns_qapp = False
         self._app = QApplication.instance()
@@ -165,6 +167,7 @@ class Plot2D(QMainWindow):
 
         self.renderer = Matplotlib2DRenderer()
         self._track_labels: list = []
+        self.viewport_stats = ViewportStatsManager(self, enabled=viewport_stats)
         self.interactions = Plot2DInteractions(
             self,
             self.ax,
@@ -732,6 +735,7 @@ class Plot2D(QMainWindow):
         )
 
         self.secondary_axis.update_after_plot()
+        self.viewport_stats.update(current_bounds.xlim)
 
     def _refresh_track_labels(
         self,
@@ -806,6 +810,7 @@ class Plot2D(QMainWindow):
 
         self.axes_grid_color = grid_color
         self.grid_manager.set_grid_colors(self.grid_color, self.axes_grid_color)
+        self.viewport_stats.restyle()
 
         secondary = self.view_manager.secondary_axis_manager
         if secondary.y_axis_manager.secondary_ax:
