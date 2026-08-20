@@ -171,6 +171,10 @@ class Plot2D(QMainWindow):
         # notified with the new path after every navigation swap; a client
         # hangs its sidecar recalibration here
         self.source_file_changed: Callable[[Path], None] | None = None
+        # parses a navigated file exactly as the current arrays were built.
+        # The registered Add loader is a fallback only: when it parses to a
+        # different dtype than the arrays on screen, the swap must use this.
+        self.navigation_loader: Callable[[Path], "np.ndarray"] | None = None
         self._render_holds = 0
 
         # Performance
@@ -901,21 +905,26 @@ class Plot2D(QMainWindow):
 
         Siblings are the source file's folder listing of its own extension,
         sorted by name; step is -1 for previous, +1 for next. The ends do not
-        wrap. The registered file loader parses the target, and the swap
-        keeps the view, selection, visibility, and styling, so the same
-        window is compared across captures.
+        wrap. The navigation loader parses the target when set, so the
+        replacement carries the same fields as the arrays it swaps into;
+        the registered file loader stands in otherwise. The swap keeps the
+        view, selection, visibility, and styling, so the same window is
+        compared across captures.
         """
         if self.source_file is None:
             print("[INFO] file navigation: no source file registered")
             return
         siblings = sorted(self.source_file.parent.glob(f"*{self.source_file.suffix}"))
-        index = siblings.index(self.source_file) + step
+        index = [p.resolve() for p in siblings].index(self.source_file.resolve()) + step
         if index < 0 or index >= len(siblings):
             which = "previous" if step < 0 else "next"
             print(f"[INFO] file navigation: no {which} {self.source_file.suffix} file")
             return
         target = siblings[index]
-        data = self.file_loader_registry.load_files([str(target)])[0]
+        if self.navigation_loader is not None:
+            data = self.navigation_loader(target)
+        else:
+            data = self.file_loader_registry.load_files([str(target)])[0]
         with self.render_hold():
             for array_index in list(
                 self.array_field_integration.array_field_manager.array_fields
