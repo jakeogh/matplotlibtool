@@ -34,9 +34,9 @@ class ViewportStatsManager:
     """
 
     BASE_BOTTOM = 0.12  # matches the Plot2D subplots_adjust default
-    ROW_HEIGHT = 0.026
+    ROW_HEIGHT = 0.039
     MAX_ROWS = 6
-    FONT_SIZE = 8.0
+    FONT_SIZE = 12.0
 
     def __init__(self, viewer: Plot2D, *, enabled: bool = False) -> None:
         self.viewer = viewer
