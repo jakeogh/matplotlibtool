@@ -85,7 +85,10 @@ class Overlay:
         top-down in add order, each line centred inside its lane with a gap to
         its neighbours, and the whole stack compresses once it would fill most
         of the view. A line that never changes state has no span to scale, so
-        it sits on its lane baseline rather than dividing by zero to get there.
+        it sits at its own level rather than dividing by zero to get there:
+        the lane's high position when pinned high, the baseline when pinned
+        low. On the baseline regardless, a lane forced high for a whole
+        capture would read as low.
         """
         low, high = ylim
         span = high - low
@@ -101,7 +104,9 @@ class Overlay:
         raw_span = raw_high - raw_low
         if raw_span <= 0.0 or span <= 0.0:
             self.y_scale = 0.0
-            self.offset_y = baseline
+            self.offset_y = baseline + (
+                amplitude * span if raw_high > 0.0 else 0.0
+            )
             return
         self.y_scale = amplitude * span / raw_span
         self.offset_y = baseline - raw_low * self.y_scale
