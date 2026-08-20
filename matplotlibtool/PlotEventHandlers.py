@@ -728,8 +728,18 @@ class PlotEventHandlers:
     def on_autocolor_toggled(self, checked: bool) -> None:
         """Toggle distance-from-mean recoloring for single-color views."""
         self.viewer.autocolor_enabled = checked
-        self.viewer._update_plot()
-        self.viewer.canvas.draw_idle()
+        self.viewer.request_render()
+
+    def on_adc_pp_toggled(self, checked: bool) -> None:
+        """List the raw-code peak-to-peak span in the viewport statistics."""
+        self.viewer.viewport_stats.show_adc_pp = checked
+        self.viewer.request_render()
+
+    def on_prev_file(self) -> None:
+        self.viewer.load_adjacent_file(-1)
+
+    def on_next_file(self) -> None:
+        self.viewer.load_adjacent_file(1)
 
     def on_gpio_configure(self) -> None:
         """One checkbox per GPIO line; the lane stack reflows as they change."""

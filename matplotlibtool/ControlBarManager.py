@@ -60,6 +60,9 @@ class ControlBarSignals(QObject):
     pixelDcToggled = pyqtSignal(bool)
     gpioToggled = pyqtSignal(bool)
     autocolorToggled = pyqtSignal(bool)
+    adcPpToggled = pyqtSignal(bool)
+    prevFileRequested = pyqtSignal()
+    nextFileRequested = pyqtSignal()
     gpioConfigureRequested = pyqtSignal()
     peaksToggled = pyqtSignal(bool)
     saveDataRequested = pyqtSignal()
@@ -581,6 +584,26 @@ class ControlBarManager:
         layout.addWidget(forward_btn)
         self.widgets["view_forward_btn"] = forward_btn
 
+        file_prev_btn = QPushButton("◀◀")
+        file_prev_btn.setMaximumWidth(40)
+        file_prev_btn.setToolTip(
+            "Load the previous file of the same extension from the loaded "
+            "file's folder. The view survives the swap."
+        )
+        file_prev_btn.clicked.connect(self.signals.prevFileRequested.emit)
+        layout.addWidget(file_prev_btn)
+        self.widgets["file_prev_btn"] = file_prev_btn
+
+        file_next_btn = QPushButton("▶▶")
+        file_next_btn.setMaximumWidth(40)
+        file_next_btn.setToolTip(
+            "Load the next file of the same extension from the loaded "
+            "file's folder. The view survives the swap."
+        )
+        file_next_btn.clicked.connect(self.signals.nextFileRequested.emit)
+        layout.addWidget(file_next_btn)
+        self.widgets["file_next_btn"] = file_next_btn
+
         reset_btn = QPushButton("Reset View")
         reset_btn.setMaximumWidth(90)
         reset_btn.clicked.connect(self.signals.resetRequested.emit)
@@ -773,6 +796,15 @@ class ControlBarManager:
         autocolor_chk.toggled.connect(self.signals.autocolorToggled.emit)
         layout.addWidget(autocolor_chk)
         self.widgets["autocolor_chk"] = autocolor_chk
+
+        adc_pp_chk = QCheckBox("ADC p-p")
+        adc_pp_chk.setToolTip(
+            "Also list each plot's peak-to-peak span in raw ADC codes in the "
+            "viewport statistics."
+        )
+        adc_pp_chk.toggled.connect(self.signals.adcPpToggled.emit)
+        layout.addWidget(adc_pp_chk)
+        self.widgets["adc_pp_chk"] = adc_pp_chk
 
         peaks_chk = QCheckBox("Peaks")
         peaks_chk.setToolTip(

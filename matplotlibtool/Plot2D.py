@@ -19,6 +19,7 @@ from __future__ import annotations
 # pylint: disable=no-name-in-module
 import sys
 from collections.abc import Iterable
+from contextlib import contextmanager
 from pathlib import Path
 from time import time
 
@@ -163,6 +164,10 @@ class Plot2D(QMainWindow):
         self.autocolor_enabled = True
         # stroke width of the GPIO logic lanes; the Configure dialog adjusts it
         self.gpio_line_width = 0.75
+        # the file the plots were loaded from, when there was exactly one;
+        # anchors previous/next navigation through its folder
+        self.source_file: Path | None = None
+        self._render_holds = 0
 
         # Performance
         self.max_display_points = 100_000
@@ -865,12 +870,55 @@ class Plot2D(QMainWindow):
         A hidden window's render is thrown away: nothing displays it, and
         the first showEvent, or a file render, renders once with everything
         in place. Nine fields loaded one by one were re-rendering an
-        ever-growing pile per add for nothing.
+        ever-growing pile per add for nothing. An open render_hold defers
+        the same way; the hold renders once on exit.
         """
-        if not self.isVisible():
+        if self._render_holds or not self.isVisible():
             return
         self._update_plot()
         self.canvas.draw_idle()
+
+    @contextmanager
+    def render_hold(self):
+        """Coalesce render requests: one render when the outermost hold exits."""
+        self._render_holds += 1
+        try:
+            yield
+        finally:
+            self._render_holds -= 1
+            if self._render_holds == 0:
+                self.request_render()
+
+    def set_source_file(self, path: Path) -> None:
+        self.source_file = Path(path)
+
+    def load_adjacent_file(self, step: int) -> None:
+        """Replace every array with the folder's previous or next capture.
+
+        Siblings are the source file's folder listing of its own extension,
+        sorted by name; step is -1 for previous, +1 for next. The ends do not
+        wrap. The registered file loader parses the target, and the swap
+        keeps the view, selection, visibility, and styling, so the same
+        window is compared across captures.
+        """
+        if self.source_file is None:
+            print("[INFO] file navigation: no source file registered")
+            return
+        siblings = sorted(self.source_file.parent.glob(f"*{self.source_file.suffix}"))
+        index = siblings.index(self.source_file) + step
+        if index < 0 or index >= len(siblings):
+            which = "previous" if step < 0 else "next"
+            print(f"[INFO] file navigation: no {which} {self.source_file.suffix} file")
+            return
+        target = siblings[index]
+        data = self.file_loader_registry.load_files([str(target)])[0]
+        with self.render_hold():
+            for array_index in list(
+                self.array_field_integration.array_field_manager.array_fields
+            ):
+                self.replace_array_data(data, array_index=array_index)
+        self.source_file = target
+        print(f"[INFO] loaded: {target.as_posix()}")
 
     def _on_plot_added(self, plot_index: int):
         plot = self.plot_manager.plots[plot_index]

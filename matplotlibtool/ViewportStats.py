@@ -47,6 +47,9 @@ class ViewportStatsManager:
         # the known reference on the ADC input connectors, when one was given;
         # listed at the end of every statistics row
         self.voltage_offset: float | None = None
+        # when set, each row also carries the peak-to-peak span in raw ADC
+        # codes, before the secondary axis transform
+        self.show_adc_pp = False
         self._text = None
         self._bottom = self.BASE_BOTTOM
 
@@ -81,6 +84,7 @@ class ViewportStatsManager:
         name: str,
         y: np.ndarray,
         config: AxisSecondaryConfig | None,
+        adc_pp: float | None,
     ) -> str:
         n = int(y.size)
         if n == 0:
@@ -115,6 +119,7 @@ class ViewportStatsManager:
             f"  min={y_min * factor:.5g}{u}"
             f"  max={y_max * factor:.5g}{u}"
             f"  pp={pp * factor:.5g}{u}"
+            f"{'' if adc_pp is None else f'  adcpp={adc_pp:.6g}'}"
             f"  mean={mean * factor:.5g}{u}"
             f"  med={median * factor:.5g}{u}"
             f"  rms={rms * factor:.5g}{u}"
@@ -147,9 +152,12 @@ class ViewportStatsManager:
             x = plot.points[:, 0].astype(np.float64) + plot.offset_x
             y = plot.points[:, 1].astype(np.float64)
             y = y[(x >= xlim[0]) & (x <= xlim[1])]
+            adc_pp = None
+            if self.show_adc_pp and y.size:
+                adc_pp = float(y.max() - y.min())
             y = y * scale + offset
             name = self.viewer.plot_manager.get_plot_name(index) or f"p{index}"
-            rows.append(self._row(name, y, config))
+            rows.append(self._row(name, y, config, adc_pp))
         if overflow:
             rows.append(f"... +{overflow} more")
 
