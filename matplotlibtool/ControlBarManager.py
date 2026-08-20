@@ -586,6 +586,7 @@ class ControlBarManager:
 
         file_prev_btn = QPushButton("◀◀")
         file_prev_btn.setMaximumWidth(40)
+        file_prev_btn.setEnabled(False)  # greyed until a source file has a neighbour
         file_prev_btn.setToolTip(
             "Load the previous file of the same extension from the loaded "
             "file's folder. The view survives the swap."
@@ -596,6 +597,7 @@ class ControlBarManager:
 
         file_next_btn = QPushButton("▶▶")
         file_next_btn.setMaximumWidth(40)
+        file_next_btn.setEnabled(False)  # greyed until a source file has a neighbour
         file_next_btn.setToolTip(
             "Load the next file of the same extension from the loaded "
             "file's folder. The view survives the swap."

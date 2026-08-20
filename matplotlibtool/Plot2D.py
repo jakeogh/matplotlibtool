@@ -31,6 +31,7 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from matplotlib.transforms import blended_transform_factory
 from PyQt6.QtCore import Qt  # type: ignore
+from PyQt6.QtCore import QFileSystemWatcher
 from PyQt6.QtCore import QTimer
 from PyQt6.QtGui import QColor  # type: ignore
 from PyQt6.QtGui import QKeyEvent
@@ -175,6 +176,10 @@ class Plot2D(QMainWindow):
         # The registered Add loader is a fallback only: when it parses to a
         # different dtype than the arrays on screen, the swap must use this.
         self.navigation_loader: Callable[[Path], "np.ndarray"] | None = None
+        # inotify-backed watch on the source file's folder keeps the
+        # previous/next buttons truthful without polling
+        self._folder_watcher = QFileSystemWatcher(self)
+        self._folder_watcher.directoryChanged.connect(self._refresh_file_navigation)
         self._render_holds = 0
 
         # Performance
@@ -899,6 +904,34 @@ class Plot2D(QMainWindow):
 
     def set_source_file(self, path: Path) -> None:
         self.source_file = Path(path)
+        watched = self._folder_watcher.directories()
+        if watched:
+            self._folder_watcher.removePaths(watched)
+        self._folder_watcher.addPath(str(self.source_file.parent))
+        self._refresh_file_navigation()
+
+    def _refresh_file_navigation(self, *_) -> None:
+        """Grey the previous/next buttons against the folder as it is now.
+
+        Driven by the folder watcher and by every source change; ordering is
+        the same name sort navigation steps through, and the source file's
+        own absence (deleted underneath us) simply greys both directions it
+        has no neighbour in.
+        """
+        prev_exists = next_exists = False
+        if self.source_file is not None:
+            me = self.source_file.resolve()
+            for sibling in self.source_file.parent.glob(f"*{self.source_file.suffix}"):
+                if sibling.resolve() == me:
+                    continue
+                if sibling.name < me.name:
+                    prev_exists = True
+                elif sibling.name > me.name:
+                    next_exists = True
+                if prev_exists and next_exists:
+                    break
+        self.control_bar_manager.widgets["file_prev_btn"].setEnabled(prev_exists)
+        self.control_bar_manager.widgets["file_next_btn"].setEnabled(next_exists)
 
     def load_adjacent_file(self, step: int) -> None:
         """Replace every array with the folder's previous or next capture.
@@ -934,6 +967,7 @@ class Plot2D(QMainWindow):
                 ):
                     self.replace_array_data(data, array_index=array_index)
         self.source_file = target
+        self._refresh_file_navigation()
         print(f"[INFO] loaded: {target.as_posix()}")
         if self.source_file_changed is not None:
             self.source_file_changed(target)
