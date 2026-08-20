@@ -18,6 +18,7 @@ from __future__ import annotations
 
 # pylint: disable=no-name-in-module
 import sys
+from collections.abc import Callable
 from collections.abc import Iterable
 from contextlib import contextmanager
 from pathlib import Path
@@ -167,6 +168,9 @@ class Plot2D(QMainWindow):
         # the file the plots were loaded from, when there was exactly one;
         # anchors previous/next navigation through its folder
         self.source_file: Path | None = None
+        # notified with the new path after every navigation swap; a client
+        # hangs its sidecar recalibration here
+        self.source_file_changed: Callable[[Path], None] | None = None
         self._render_holds = 0
 
         # Performance
@@ -919,6 +923,8 @@ class Plot2D(QMainWindow):
                 self.replace_array_data(data, array_index=array_index)
         self.source_file = target
         print(f"[INFO] loaded: {target.as_posix()}")
+        if self.source_file_changed is not None:
+            self.source_file_changed(target)
 
     def _on_plot_added(self, plot_index: int):
         plot = self.plot_manager.plots[plot_index]
