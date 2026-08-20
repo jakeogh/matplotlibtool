@@ -783,6 +783,15 @@ class Plot2D(QMainWindow):
 
     # ===== appearance =====
 
+    def set_sample_rate(self, rate_hz: float | None) -> None:
+        """Set the x-axis sample rate as if typed into the Rate box.
+
+        State, the Rate widgets, analysis overlays, and any attached spectrum
+        windows all follow, exactly as they do for an operator edit.
+        """
+        self.event_handlers.on_sample_rate_changed(rate_hz or 0.0)
+        self.control_bar_manager.set_sample_rate_display(self.sample_rate_hz)
+
     def set_dark_mode(self, enabled: bool):
         self.dark_mode = enabled
 
