@@ -66,6 +66,7 @@ class ControlBarSignals(QObject):
     gpioConfigureRequested = pyqtSignal()
     peaksToggled = pyqtSignal(bool)
     saveDataRequested = pyqtSignal()
+    screenshotRequested = pyqtSignal()
 
     # View controls
     fitViewRequested = pyqtSignal()
@@ -546,6 +547,15 @@ class ControlBarManager:
         save_data_btn.clicked.connect(self.signals.saveDataRequested.emit)
         layout.addWidget(save_data_btn)
         self.widgets["save_data_btn"] = save_data_btn
+
+        screenshot_btn = QPushButton("Screenshot")
+        screenshot_btn.setMaximumWidth(90)
+        screenshot_btn.setToolTip(
+            "Save a full window screenshot beside the loaded capture."
+        )
+        screenshot_btn.clicked.connect(self.signals.screenshotRequested.emit)
+        layout.addWidget(screenshot_btn)
+        self.widgets["screenshot_btn"] = screenshot_btn
 
         layout.addWidget(QLabel("Mode"))
         for mode_name, label, tip in (

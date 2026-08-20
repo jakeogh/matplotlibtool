@@ -73,6 +73,7 @@ class ControlBarIntegration:
             "gpioConfigureRequested": self.viewer.event_handlers.on_gpio_configure,
             "peaksToggled": self.viewer.event_handlers.on_peaks_toggled,
             "saveDataRequested": self.viewer.event_handlers.on_save_data,
+            "screenshotRequested": self.viewer.event_handlers.on_screenshot,
             # Grid controls
             "gridSpacingChanged": self.viewer.event_handlers.on_grid_changed,
             "axesGridColorPickRequested": self.viewer.event_handlers.on_pick_axes_grid_color,

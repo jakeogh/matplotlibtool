@@ -175,6 +175,26 @@ class PlotEventHandlers:
             self.viewer._render_to_file(filepath, dpi=300)
             print(f"[INFO] Figure auto-saved to: {filepath}")
 
+    def on_screenshot(self) -> None:
+        """Save a full window screenshot beside the source capture.
+
+        The whole window is grabbed, control bar and statistics included,
+        so the file records the capture exactly as it was being read. A
+        viewer with no source file falls back to /delme.
+        """
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        source = self.viewer.source_file
+        if source is not None:
+            filepath = source.parent / f"{source.stem}_{timestamp}_screenshot.png"
+        else:
+            output_dir = Path("/delme")
+            output_dir.mkdir(parents=True, exist_ok=True)
+            filepath = output_dir / f"screenshot_{timestamp}.png"
+        pixmap = self.viewer.grab()
+        if not pixmap.save(str(filepath), "PNG"):
+            raise RuntimeError(f"screenshot: could not write {filepath}")
+        print(f"[INFO] screenshot saved: {filepath}")
+
     def on_save_data(self):
         """Save the in-window samples as CSV beside the source capture."""
         bounds = self.viewer.view_manager.get_current_bounds()
