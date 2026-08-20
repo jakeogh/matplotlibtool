@@ -176,7 +176,7 @@ class ViewportStatsManager:
         if overflow:
             rows.append(f"... +{overflow} more")
         if self.header:
-            rows.insert(0, self.header)
+            rows[0:0] = self.header.splitlines()
 
         self._set_bottom(self.BASE_BOTTOM + self.ROW_HEIGHT * len(rows))
 
