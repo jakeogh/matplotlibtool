@@ -751,6 +751,8 @@ class ControlBarManager:
         fft_btn.clicked.connect(self.signals.fftRequested.emit)
         layout.addWidget(fft_btn)
         self.widgets["fft_btn"] = fft_btn
+        self._action_row = layout
+        self._action_insert_at = layout.indexOf(fft_btn) + 1
 
         pixels_btn = QPushButton("Pixels")
         pixels_btn.setMaximumWidth(60)
@@ -1452,6 +1454,15 @@ class ControlBarManager:
             btn.blockSignals(True)
             btn.setChecked(name.upper() == mode_name)
             btn.blockSignals(False)
+
+    def add_action_button(self, label: str, tooltip: str, callback) -> None:
+        """A client-supplied window opener beside the FFT button."""
+        button = QPushButton(label)
+        button.setToolTip(tooltip)
+        button.clicked.connect(callback)
+        self._action_row.insertWidget(self._action_insert_at, button)
+        self._action_insert_at += 1
+        self.widgets[f"action_{label}"] = button
 
     def get_widget(self, name: str) -> QWidget | None:
         """Get widget by name."""

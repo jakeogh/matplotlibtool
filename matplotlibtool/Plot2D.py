@@ -834,6 +834,10 @@ class Plot2D(QMainWindow):
 
     # ===== appearance =====
 
+    def add_action_button(self, label: str, tooltip: str, callback) -> None:
+        """A client button beside FFT that opens its own window."""
+        self.control_bar_manager.add_action_button(label, tooltip, callback)
+
     def set_gpio_line_width(self, width: float) -> None:
         """Adopt a new stroke width for every GPIO logic lane."""
         self.gpio_line_width = width
