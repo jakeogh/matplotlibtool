@@ -28,13 +28,13 @@ from dataclasses import dataclass
 from typing import Literal
 
 import numpy as np
-from iio_pixel_settle_estimator import RECORD_DTYPE
-from iio_pixel_settle_estimator import VERDICTS
-from iio_pixel_settle_estimator import estimate_settle_window_array
-from iio_pixel_settle_estimator import settle_geometry
+from iioparser import VERDICTS
+from iioparser import WIDE_DTYPE as RECORD_DTYPE
+from iioparser import settle_geometry
+from iioparser import settle_window_from_records
 
-# The window and the geometry it rests on come from iio-pixel-settle-estimator,
-# which owns the criterion. This module measures dwells and the diagnostics
+# The window and the geometry it rests on come from iiosuite, which owns the
+# criterion. This module measures dwells and the diagnostics
 # around them; it does not decide where a window starts. Two implementations of
 # one criterion drift, and did: a fault fixed in the estimator went on reading
 # a large step pixel 179,091 codes high here for as long as the copy survived.
@@ -371,13 +371,13 @@ def analyse_pixels(
     # The window comes from the estimator, which owns the criterion; this
     # module measures the dwells it is read off and the diagnostics beside it.
     records, estimator_field = _records_for_estimator(data, value_field, pixel_field)
-    window = estimate_settle_window_array(
+    window = settle_window_from_records(
         records,
         field=estimator_field,
         idle_pixel=idle_pixel,
-        settle_floor_mult=settle_floor_mult,
+        floor_mult=settle_floor_mult,
     )
-    verdict: Verdict = window["verdict"]
+    verdict: Verdict = VERDICTS[window["verdict"]]
     recommended_start = window["start"]
     recommended_length = window["length"]
     settled = window["settled"]
