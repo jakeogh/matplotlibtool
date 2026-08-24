@@ -5,10 +5,8 @@ Consolidated utility functions for point cloud processing and visualization.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 
 import numpy as np
-from unmp import unmp
 
 
 def normalize_points(points: np.ndarray, dimensions: int | None = None) -> np.ndarray:
@@ -109,134 +107,6 @@ def compute_bounds(
     else:
         # Return ((xmin, xmax), (ymin, ymax)) format
         return (float(lo[0]), float(hi[0])), (float(lo[1]), float(hi[1]))
-
-
-def load_points_from_stdin_ndarray(
-    minimum_dimensions: int,
-) -> np.ndarray:
-    """
-    Read points from stdin via messagepack.
-
-    Args:
-        minimum_dimensions: 2 for (x,y,[color]),
-                            3 for (x,y,z,[color]),
-                            4 for (x,y,z,color),
-
-    Returns:
-        Tuple of (points_array)
-    """
-    iterator: Sequence[tuple] = unmp(valid_types=[tuple])
-    points = []
-    found_data = False
-
-    for index, _mpobject in enumerate(iterator):
-        _v = _mpobject
-        if isinstance(_v, dict):
-            # Accept single k:v dict rows, use the value part
-            for _, __v in _v.items():
-                _v = __v
-                break
-
-        # Skip comment lines
-        if isinstance(_v[0], str) and _v[0].startswith("#"):
-            continue
-
-        # Skip header lines (non-numeric first element)
-        if not found_data:
-            try:
-                float(_v[0])
-            except (ValueError, TypeError):
-                continue
-
-        # Process data based on expected dimensions
-        if minimum_dimensions == 2 and len(_v) >= 2:
-            x, y = float(_v[0]), float(_v[1])
-            found_data = True
-            # Third component is color for 2D
-            if len(_v) >= 3:
-                z = float(_v[2])
-                points.append([x, y, z])
-            else:
-                points.append([x, y])
-
-        elif minimum_dimensions == 3 and len(_v) >= 3:
-            x, y, z = float(_v[0]), float(_v[1]), float(_v[2])
-            found_data = True
-            # Fourth component is color for 3D
-            if len(_v) >= 4:
-                c = float(_v[3])
-                points.append([x, y, z, c])
-            else:
-                points.append([x, y, z])
-        else:
-            raise NotImplementedError(f"{minimum_dimensions=}")
-
-    if not points:
-        return np.empty((0, minimum_dimensions), dtype=np.float32)
-
-    pts = np.asarray(points, dtype=np.float32)
-    return pts
-
-
-def load_points_from_stdin(
-    expected_dimensions: int = 3,
-) -> tuple[np.ndarray, np.ndarray | None]:
-    """
-    Read points from stdin via messagepack.
-
-    Args:
-        expected_dimensions: 2 for (x,y[,color]), 3 for (x,y,z[,color])
-
-    Returns:
-        Tuple of (points_array, color_data_array_or_None)
-    """
-    iterator: Sequence[tuple] = unmp(valid_types=[tuple])
-    points, colors = [], []
-    found_data = False
-
-    for index, _mpobject in enumerate(iterator):
-        _v = _mpobject
-        if isinstance(_v, dict):
-            # Accept single k:v dict rows, use the value part
-            for _, __v in _v.items():
-                _v = __v
-                break
-
-        # Skip comment lines
-        if isinstance(_v[0], str) and _v[0].startswith("#"):
-            continue
-
-        # Skip header lines (non-numeric first element)
-        if not found_data:
-            try:
-                float(_v[0])
-            except (ValueError, TypeError):
-                continue
-
-        # Process data based on expected dimensions
-        if expected_dimensions == 2 and len(_v) >= 2:
-            x, y = float(_v[0]), float(_v[1])
-            found_data = True
-            points.append([x, y])
-            # Third component is color for 2D
-            if len(_v) >= 3:
-                colors.append(float(_v[2]))
-
-        elif expected_dimensions == 3 and len(_v) >= 3:
-            x, y, z = float(_v[0]), float(_v[1]), float(_v[2])
-            found_data = True
-            points.append([x, y, z])
-            # Fourth component is color for 3D
-            if len(_v) >= 4:
-                colors.append(float(_v[3]))
-
-    if not points:
-        empty_shape = (0, expected_dimensions)
-        return np.empty(empty_shape, dtype=np.float32), None
-
-    pts = np.asarray(points, dtype=np.float32)
-    clr = np.asarray(colors, dtype=np.float32) if colors else None
-    return pts, clr
 
 
 def center_points_2d(points_xy: np.ndarray) -> np.ndarray:

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "matplotlibtool"
-version = "1!0.0.1787551536"
+version = "1!0.0.1787555720"
 description = "2D and 3D matplotlib plotting lib for structured arrays"
 authors = [
     { name = "Justin Keogh", email = "github.com@v6y.net" },
@@ -17,11 +17,9 @@ dependencies = [
     "vispy",
     "asserttool @ git+https://github.com/jakeogh/asserttool@4bd23a06c2161e488415acde89c29537e6720cc1",
     "click-auto-help @ git+https://github.com/jakeogh/click-auto-help@c53f57c78529a51ae9b03f579d7ee6f2d63ca03a",
-    "clicktool @ git+https://github.com/jakeogh/clicktool@a9894f9d3a06701c5f73cd8b2794028042c9b420",
+    "clicktool @ git+https://github.com/jakeogh/clicktool@7294ba6934225c028e48638fc0540bc57238ff00",
     "configtool @ git+https://github.com/jakeogh/configtool@8a4ea7e2740ceb52b8b93684fe803c2461c9f0ed",
-    "globalverbose @ git+https://github.com/jakeogh/globalverbose@59abc758c18c0b85e9e61c1e14e5a64a81bb220e",
     "pyfft @ git+https://github.com/jakeogh/pyfft@45e0a90f405da28d3ef58037b1b65591f450a3f0",
-    "unmp @ git+https://github.com/jakeogh/unmp@7272e41db895729d117aa6f1720788c8f88f7476",
     "iio-pixel-settle-estimator @ git+ssh://git@github.com/DentonGroup/iio-pixel-settle-estimator@3eaa002d9ed33b01dd04d7a4b05f9328762fd6cd",
 ]
 license = "ISC"
@@ -29,9 +27,6 @@ requires-python = ">=3.11"
 
 [project.urls]
 Homepage = "https://github.com/jakeogh/matplotlibtool"
-
-[project.scripts]
-matplotlibtool = "matplotlibtool.cli:cli"
 
 [tool.setuptools]
 include-package-data = true
