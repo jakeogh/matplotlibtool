@@ -126,13 +126,29 @@ class Matplotlib2DRenderer:
 
             x = points[:, 0]
             y = points[:, 1]
-            mask_x = (x >= cx0) & (x <= cx1)
-            max_x_count = max(
-                max_x_count,
-                int(((x >= view_xlim[0]) & (x <= view_xlim[1])).sum()),
-            )
-            mask = mask_x & (y >= cy0) & (y <= cy1)
-            idx = np.flatnonzero(mask)
+            if plot.x_ascending:
+                # two searches instead of a comparison against every point,
+                # and the y cull then runs over the span the x cull kept
+                # rather than over the whole record. The indices stay absolute
+                # so the colour arrays below index the same way they always
+                # did.
+                lo = int(np.searchsorted(x, cx0, side="left"))
+                hi = int(np.searchsorted(x, cx1, side="right"))
+                max_x_count = max(
+                    max_x_count,
+                    int(np.searchsorted(x, view_xlim[1], side="right"))
+                    - int(np.searchsorted(x, view_xlim[0], side="left")),
+                )
+                span = y[lo:hi]
+                idx = lo + np.flatnonzero((span >= cy0) & (span <= cy1))
+            else:
+                mask_x = (x >= cx0) & (x <= cx1)
+                max_x_count = max(
+                    max_x_count,
+                    int(((x >= view_xlim[0]) & (x <= view_xlim[1])).sum()),
+                )
+                mask = mask_x & (y >= cy0) & (y <= cy1)
+                idx = np.flatnonzero(mask)
 
             if idx.size == 0:
                 if plot.scatter_artist is not None:

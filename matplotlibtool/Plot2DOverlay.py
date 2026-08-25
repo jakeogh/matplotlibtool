@@ -55,6 +55,9 @@ class Overlay:
     _norm_cache: tuple[int, float, float, np.ndarray] | None = field(
         default=None, init=False, repr=False
     )
+    _ascending_cache: tuple[int, bool] | None = field(
+        default=None, init=False, repr=False
+    )
     _settle_cache: tuple[tuple, np.ndarray] | None = field(
         default=None, init=False, repr=False
     )
@@ -110,6 +113,28 @@ class Overlay:
             return
         self.y_scale = amplitude * span / raw_span
         self.offset_y = baseline - raw_low * self.y_scale
+
+    @property
+    def x_ascending(self) -> bool:
+        """Whether the points run in ascending x, decided once and kept.
+
+        Deciding it costs the pass it exists to avoid, so it is remembered
+        against the identity of the points it was decided from. The display
+        transform translates x and scales y and so cannot change the answer;
+        only replacing the points can, and that changes the key.
+
+        Sorted x is what lets a view window be found with two searches instead
+        of a comparison against every point, which is the difference between a
+        zoom that redraws and one that waits.
+        """
+        key = id(self.points)
+        cache = self._ascending_cache
+        if cache is not None and cache[0] == key:
+            return cache[1]
+        x = self.points[:, 0]
+        ascending = bool(x.size < 2 or np.all(np.diff(x) >= 0.0))
+        self._ascending_cache = (key, ascending)
+        return ascending
 
     def display_points(self) -> np.ndarray:
         """

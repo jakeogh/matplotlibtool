@@ -65,9 +65,15 @@ class Plot2DInteractions:
     # plot therefore zooms X only, dragging beside it zooms Y only.
 
     def _begin_zoom_box(self, event) -> None:
+        # The background the box is blitted over is whatever is already on the
+        # canvas. Forcing a draw here re-rendered every point before the box
+        # could appear, which is the whole cost of a render paid for a
+        # rectangle, and paid again on the button up that zooms. A draw is
+        # only needed when nothing has been rendered yet.
         self.drawing_zoom_box = True
         self._box_start_pixel = (event.x, event.y)
-        self.canvas.draw()
+        if self.canvas.renderer is None:
+            self.canvas.draw()
         self._box_background = self.canvas.copy_from_bbox(self.canvas.figure.bbox)
 
     def _clamped_box(

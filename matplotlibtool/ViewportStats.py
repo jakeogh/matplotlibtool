@@ -70,10 +70,6 @@ class ViewportStatsManager:
         self._bottom = self.BASE_BOTTOM
         self._cache_key: tuple | None = None
         self._cache_rows: list[str] | None = None
-        # whether a plot's x is ascending, decided once per plot and kept: the
-        # answer cannot change without the points being replaced, and asking
-        # again costs the pass the answer exists to avoid
-        self._sorted: dict[int, bool] = {}
 
     def set_enabled(self, enabled: bool) -> None:
         self.enabled = enabled
@@ -91,7 +87,6 @@ class ViewportStatsManager:
         """
         self._cache_key = None
         self._cache_rows = None
-        self._sorted.clear()
 
     def _window(self, plot, xlim: tuple[float, float]) -> np.ndarray:
         """The plot's y values inside the x window.
@@ -99,16 +94,11 @@ class ViewportStatsManager:
         Sorted x is the common case and the cheap one: two searches instead of
         a full comparison and a full gather.
         """
-        index = id(plot)
         points = plot.points
         x = points[:, 0]
-        ascending = self._sorted.get(index)
-        if ascending is None:
-            ascending = bool(x.size < 2 or np.all(np.diff(x) >= 0.0))
-            self._sorted[index] = ascending
         lo = xlim[0] - plot.offset_x
         hi = xlim[1] - plot.offset_x
-        if ascending:
+        if plot.x_ascending:
             start = int(np.searchsorted(x, lo, side="left"))
             stop = int(np.searchsorted(x, hi, side="right"))
             return points[start:stop, 1].astype(np.float64, copy=False)
