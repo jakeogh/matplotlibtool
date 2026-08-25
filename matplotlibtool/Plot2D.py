@@ -111,6 +111,7 @@ class Plot2D(QMainWindow):
         gpio: bool = False,
         pixel_dc: bool = True,
         report_draw_timing: bool = False,
+        auto_exit: bool = False,
     ):
         self._owns_qapp = False
         self._app = QApplication.instance()
@@ -270,6 +271,10 @@ class Plot2D(QMainWindow):
         self.report_draw_timing = report_draw_timing
         self._draw_requested: float | None = None
         self._draw_caller: str | None = None
+        # Close once the first frame carrying data has been drawn, so a run
+        # measured from outside covers loading and drawing and stops there.
+        self.auto_exit = auto_exit
+        self._auto_exited = False
         # A draw asked for while one is still outstanding does not replace it,
         # it queues behind it. During a drag that means every mouse position
         # gets its own frame, the frames arrive long after the positions that
@@ -989,6 +994,7 @@ class Plot2D(QMainWindow):
         """
         self.draw_in_flight = False
         self.interactions.on_draw_finished()
+        self._auto_exit_if_drawn()
         if not self.report_draw_timing:
             return
         requested = self._draw_requested
@@ -1004,6 +1010,26 @@ class Plot2D(QMainWindow):
             file=sys.stderr,
             flush=True,
         )
+
+    def _auto_exit_if_drawn(self) -> None:
+        """Close after the first frame that had something in it.
+
+        An empty figure is drawn before any capture is added, and closing on
+        that would time the window opening rather than the work. Deferred by a
+        timer because this runs inside the paint that is being reported: a
+        widget does not close itself in the middle of drawing.
+        """
+        if self._auto_exited or not self.auto_exit:
+            return
+        if not self.plot_manager.get_all_plots():
+            return
+        self._auto_exited = True
+        print(
+            "[INFO] --auto-exit: first frame drawn, closing.",
+            file=sys.stderr,
+            flush=True,
+        )
+        QTimer.singleShot(0, self.close)
 
     def request_render(self) -> None:
         """Re-render and schedule a draw, unless the window is hidden.
