@@ -258,12 +258,19 @@ class Plot2D(QMainWindow):
         # it is made is the only place both are known.
         self.report_draw_timing = report_draw_timing
         self._draw_requested: float | None = None
+        self._draw_caller: str | None = None
         if report_draw_timing:
             _draw_idle = self.canvas.draw_idle
 
             def _timed_draw_idle() -> None:
                 if self._draw_requested is None:
                     self._draw_requested = perf_counter()
+                    import traceback
+
+                    frames = traceback.extract_stack(limit=4)[:-1]
+                    self._draw_caller = " <- ".join(
+                        f"{frame.name}:{frame.lineno}" for frame in reversed(frames)
+                    )
                 _draw_idle()
 
             self.canvas.draw_idle = _timed_draw_idle
@@ -938,18 +945,24 @@ class Plot2D(QMainWindow):
             self.point_hover.on_hover_motion(event)
 
     def _on_draw_event(self, _event) -> None:
-        """Say when a draw finished, and how long it was outstanding."""
+        """Say when a draw finished, how long it waited, and who asked for it.
+
+        The drawn count is what the renderer put on the canvas after culling
+        and subsampling, not what was loaded: the loaded figure says nothing
+        about the cost of the draw. The caller is recorded because a second
+        full draw nobody meant to ask for is otherwise indistinguishable from
+        a slow one.
+        """
         requested = self._draw_requested
+        caller = self._draw_caller
         self._draw_requested = None
-        drawn = sum(
-            len(plot.points)
-            for plot in self.plot_manager.get_all_plots()
-            if plot.visible
-        )
+        self._draw_caller = None
         waited = "" if requested is None else f" after {perf_counter() - requested:.3f}s"
+        origin = f", requested by {caller}" if caller else ""
         print(
             f"[timing] draw complete{waited}, "
-            f"{len(self.plot_manager.get_all_plots())} plots, {drawn:,} points",
+            f"{len(self.plot_manager.get_all_plots())} plots, "
+            f"{self.renderer.last_drawn_points:,} points drawn{origin}",
             file=sys.stderr,
             flush=True,
         )

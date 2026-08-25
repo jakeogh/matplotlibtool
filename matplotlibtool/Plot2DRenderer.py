@@ -34,6 +34,13 @@ AUTO_FILL = 0.576       # fraction of the inter-point spacing a marker occupies
 AUTO_AREA_FLOOR = 0.6   # about a one-pixel dot at 100 dpi; dense views hold this
 AUTO_SIZE_MAX = 144.0   # 12 point diameter
 
+# The display budget is shared across the plots that are visible, not granted
+# to each of them. One axes has one set of pixels however many captures are
+# loaded into it, and a per-plot cap multiplies the drawn point count by the
+# number of files, which is where the cost of loading many of them went. No
+# plot is cut below this many, so one among many is still a shape.
+MIN_DISPLAY_POINTS = 2_000
+
 
 def auto_point_size(ax, drawn_count: int) -> float:
     """Marker area for the given number of in-view points across the axes."""
@@ -51,6 +58,7 @@ def auto_point_size(ax, drawn_count: int) -> float:
 class Matplotlib2DRenderer:
     def __init__(self):
         self.plot_initialized = False
+        self.last_drawn_points = 0
         self._batch_solid_line_collection: LineCollection | None = None
         self._batch_colored_line_collection: LineCollection | None = None
 
@@ -156,12 +164,31 @@ class Matplotlib2DRenderer:
                 prepared.append(None)
                 continue
 
-            if idx.size > max_display_points:
-                step = -(-idx.size // max_display_points)  # ceil div
-                idx = idx[::step]
-
             prepared.append((plot, color_range, color_override, points, idx))
 
+        drawn_plots = sum(1 for entry in prepared if entry is not None)
+        budget = (
+            max(MIN_DISPLAY_POINTS, max_display_points // drawn_plots)
+            if drawn_plots
+            else max_display_points
+        )
+        for position, entry in enumerate(prepared):
+            if entry is None:
+                continue
+            plot, color_range, color_override, points, idx = entry
+            if idx.size > budget:
+                step = -(-idx.size // budget)  # ceil div
+                prepared[position] = (
+                    plot,
+                    color_range,
+                    color_override,
+                    points,
+                    idx[::step],
+                )
+
+        self.last_drawn_points = sum(
+            entry[4].size for entry in prepared if entry is not None
+        )
         shared_size = auto_point_size(ax, max_x_count)
         for plot in plots:
             if plot.auto_size:
