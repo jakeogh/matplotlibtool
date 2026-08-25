@@ -107,6 +107,7 @@ class Plot2D(QMainWindow):
         embedded: bool = False,
         viewport_stats: bool = False,
         gpio: bool = False,
+        pixel_dc: bool = True,
         report_draw_timing: bool = False,
     ):
         self._owns_qapp = False
@@ -212,6 +213,9 @@ class Plot2D(QMainWindow):
         # whether the caller decoded the logic lanes at all. The checkbox
         # governs lanes that were loaded; it cannot show what was never read.
         self.gpio_requested = gpio
+        # the per dwell DC overlay fits the settling curve of every array to
+        # choose its window, which is most of what loading many captures costs
+        self.pixel_dc_requested = pixel_dc
         self.interactions = Plot2DInteractions(
             self,
             self.ax,
@@ -319,6 +323,7 @@ class Plot2D(QMainWindow):
         # that turned the rows off is not contradicted by a checked box
         self.control_bar_manager.set_statistics_checked(self.viewport_stats.enabled)
         self.control_bar_manager.set_gpio_checked(self.gpio_requested)
+        self.control_bar_manager.set_pixel_dc_checked(self.pixel_dc_requested)
 
         status_label = self.control_bar_manager.get_widget("status_label")
         if status_label is None:

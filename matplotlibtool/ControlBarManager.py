@@ -776,7 +776,10 @@ class ControlBarManager:
             "horizontal line across that pixel's dwell, using the window "
             "measured from the capture."
         )
-        pixel_dc_chk.setChecked(True)
+        # unchecked until the viewer says otherwise: choosing the window fits
+        # the settling curve of every array, and a caller that does not want
+        # that should not pay for it before it can say so
+        pixel_dc_chk.setChecked(False)
         pixel_dc_chk.toggled.connect(self.signals.pixelDcToggled.emit)
         layout.addWidget(pixel_dc_chk)
         self.widgets["pixel_dc_chk"] = pixel_dc_chk
