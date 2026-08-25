@@ -107,6 +107,7 @@ class Plot2D(QMainWindow):
         embedded: bool = False,
         viewport_stats: bool = False,
         gpio: bool = False,
+        report_draw_timing: bool = False,
     ):
         self._owns_qapp = False
         self._app = QApplication.instance()
@@ -251,6 +252,23 @@ class Plot2D(QMainWindow):
         self.view_history = ViewHistory()
 
         # Panning
+        # A draw is scheduled from a dozen places and finishes whenever the
+        # toolkit gets round to it, so the wait an operator feels is between a
+        # request and the draw_event that ends it. Stamping the request where
+        # it is made is the only place both are known.
+        self.report_draw_timing = report_draw_timing
+        self._draw_requested: float | None = None
+        if report_draw_timing:
+            _draw_idle = self.canvas.draw_idle
+
+            def _timed_draw_idle() -> None:
+                if self._draw_requested is None:
+                    self._draw_requested = perf_counter()
+                _draw_idle()
+
+            self.canvas.draw_idle = _timed_draw_idle
+            self.canvas.mpl_connect("draw_event", self._on_draw_event)
+
         self.canvas.mpl_connect("button_press_event", self.interactions.on_mouse_press)
         self.canvas.mpl_connect(
             "button_release_event", self.interactions.on_mouse_release
@@ -918,6 +936,23 @@ class Plot2D(QMainWindow):
     def _on_hover_motion_wrapper(self, event):
         if not self.interactions.panning and not self.interactions.drawing_zoom_box:
             self.point_hover.on_hover_motion(event)
+
+    def _on_draw_event(self, _event) -> None:
+        """Say when a draw finished, and how long it was outstanding."""
+        requested = self._draw_requested
+        self._draw_requested = None
+        drawn = sum(
+            len(plot.points)
+            for plot in self.plot_manager.get_all_plots()
+            if plot.visible
+        )
+        waited = "" if requested is None else f" after {perf_counter() - requested:.3f}s"
+        print(
+            f"[timing] draw complete{waited}, "
+            f"{len(self.plot_manager.get_all_plots())} plots, {drawn:,} points",
+            file=sys.stderr,
+            flush=True,
+        )
 
     def request_render(self) -> None:
         """Re-render and schedule a draw, unless the window is hidden.
