@@ -33,6 +33,13 @@ class Plot2DInteractions:
         self.state = state
 
         self.panning = False
+        # Where the mouse last asked the view to be, and where it was last
+        # asked to go. They differ while a frame is outstanding, and the
+        # difference is what gets applied when that frame lands, so a gesture
+        # ends where the mouse stopped rather than wherever the last frame the
+        # toolkit found time for happened to leave it.
+        self._pan_target: tuple[tuple[float, float], tuple[float, float]] | None = None
+        self._pan_applied: tuple[tuple[float, float], tuple[float, float]] | None = None
         self._pan_start_pixel: tuple[float, float] | None = None
         self._pan_start_xlim: tuple[float, float] | None = None
         self._pan_start_ylim: tuple[float, float] | None = None
@@ -207,6 +214,9 @@ class Plot2DInteractions:
 
         if (is_middle or is_shift_left or is_pan_mode_left) and event.inaxes is not None:
             self.panning = True
+            self.viewer.interacting = True
+            self._pan_target = None
+            self._pan_applied = None
             self._pan_start_pixel = (event.x, event.y)
             self._pan_start_xlim = self.ax.get_xlim()
             self._pan_start_ylim = self.ax.get_ylim()
@@ -234,19 +244,47 @@ class Plot2DInteractions:
         data_dx = -pixel_dx * (x_range / bbox.width)
         data_dy = -pixel_dy * (y_range / bbox.height)
 
-        self.viewer.set_view(
+        self._pan_target = (
             (self._pan_start_xlim[0] + data_dx, self._pan_start_xlim[1] + data_dx),
             (self._pan_start_ylim[0] + data_dy, self._pan_start_ylim[1] + data_dy),
-            record=False,
         )
+        self._apply_pan_target()
+
+    def _apply_pan_target(self) -> None:
+        """Move the view to where the mouse is now, if nothing is being drawn.
+
+        Asking again while a frame is outstanding queues it, and a queue of
+        frames is a queue of stale positions. Dropping them costs nothing: the
+        one that matters is the latest, and on_draw_finished asks for it.
+        """
+        if self._pan_target is None or self._pan_target == self._pan_applied:
+            return
+        if self.viewer.draw_in_flight:
+            return
+        self._pan_applied = self._pan_target
+        self.viewer.set_view(*self._pan_target, record=False)
+
+    def on_draw_finished(self) -> None:
+        """A frame landed, so the mouse may have moved on since it was asked for."""
+        if self.panning:
+            self._apply_pan_target()
 
     def on_mouse_release(self, event):
         if self.drawing_zoom_box:
             self._finish_zoom_box(event)
             return
         if self.panning:
-            self.viewer.record_view_history()
             self.panning = False
+            self.viewer.interacting = False
+            # the frame that gets read is this one, so it is drawn from
+            # everything the budget allows and from where the mouse stopped
+            if self._pan_target is not None and self._pan_target != self._pan_applied:
+                self.viewer.set_view(*self._pan_target, record=False)
+            else:
+                self.viewer.request_render()
+            self.viewer.record_view_history()
+            self._pan_target = None
+            self._pan_applied = None
             self._pan_start_pixel = None
             self._pan_start_xlim = None
             self._pan_start_ylim = None

@@ -62,6 +62,8 @@ from .KeyboardInputManager import KeyboardInputManager
 from .MouseMode import MouseMode
 from .Plot2DInteractions import Plot2DInteractions
 from .Plot2DOverlay import Overlay
+from .Plot2DRenderer import INTERACTIVE_DISPLAY_POINTS
+from .Plot2DRenderer import INTERACTIVE_DIVISOR
 from .Plot2DRenderer import Matplotlib2DRenderer
 from .PlotDataProcessor import PlotDataProcessor
 from .PlotEventHandlers import PlotEventHandlers
@@ -202,6 +204,11 @@ class Plot2D(QMainWindow):
         self._render_holds = 0
 
         # Performance
+        # Points a frame drawn mid gesture is allowed, and the floor under
+        # that. The figure itself costs about as much to draw as tens of
+        # thousands of points do, so cutting the points is worth roughly a
+        # halving of the frame and no more; the rest of what makes a drag
+        # follow the mouse is not queueing frames behind it.
         self.max_display_points = 100_000
         self.sample_rate_hz: float | None = None
         self.max_line_segments = 10_000
@@ -263,22 +270,34 @@ class Plot2D(QMainWindow):
         self.report_draw_timing = report_draw_timing
         self._draw_requested: float | None = None
         self._draw_caller: str | None = None
-        if report_draw_timing:
-            _draw_idle = self.canvas.draw_idle
+        # A draw asked for while one is still outstanding does not replace it,
+        # it queues behind it. During a drag that means every mouse position
+        # gets its own frame, the frames arrive long after the positions that
+        # asked for them, and the gesture ends with the view somewhere the
+        # mouse passed through rather than where it stopped. Whoever is
+        # dragging watches for this and asks again with the latest position
+        # when the outstanding frame lands.
+        self.draw_in_flight = False
+        # A drag redraws as fast as it can and none of those frames is looked
+        # at for longer than the next one takes, so they are drawn from fewer
+        # points. The frame after the gesture ends is the one that is read.
+        self.interacting = False
+        _draw_idle = self.canvas.draw_idle
 
-            def _timed_draw_idle() -> None:
-                if self._draw_requested is None:
-                    self._draw_requested = perf_counter()
-                    import traceback
+        def _tracked_draw_idle() -> None:
+            self.draw_in_flight = True
+            if report_draw_timing and self._draw_requested is None:
+                self._draw_requested = perf_counter()
+                import traceback
 
-                    frames = traceback.extract_stack(limit=4)[:-1]
-                    self._draw_caller = " <- ".join(
-                        f"{frame.name}:{frame.lineno}" for frame in reversed(frames)
-                    )
-                _draw_idle()
+                frames = traceback.extract_stack(limit=4)[:-1]
+                self._draw_caller = " <- ".join(
+                    f"{frame.name}:{frame.lineno}" for frame in reversed(frames)
+                )
+            _draw_idle()
 
-            self.canvas.draw_idle = _timed_draw_idle
-            self.canvas.mpl_connect("draw_event", self._on_draw_event)
+        self.canvas.draw_idle = _tracked_draw_idle
+        self.canvas.mpl_connect("draw_event", self._on_draw_event)
 
         self.canvas.mpl_connect("button_press_event", self.interactions.on_mouse_press)
         self.canvas.mpl_connect(
@@ -817,7 +836,14 @@ class Plot2D(QMainWindow):
                 enabled=self.autocolor_enabled,
             ),
             cull_margin=self.cull_margin,
-            max_display_points=self.max_display_points,
+            max_display_points=(
+                max(
+                    INTERACTIVE_DISPLAY_POINTS,
+                    self.max_display_points // INTERACTIVE_DIVISOR,
+                )
+                if self.interacting
+                else self.max_display_points
+            ),
             max_line_segments=self.max_line_segments,
             disable_antialiasing=self.disable_antialiasing,
         )
@@ -950,7 +976,7 @@ class Plot2D(QMainWindow):
             self.point_hover.on_hover_motion(event)
 
     def _on_draw_event(self, _event) -> None:
-        """Say when a draw finished, how long it waited, and who asked for it.
+        """Release the drag's hold on rendering, and report the draw if asked.
 
         The drawn count is what the renderer put on the canvas after culling
         and subsampling, not what was loaded: the loaded figure says nothing
@@ -958,6 +984,10 @@ class Plot2D(QMainWindow):
         full draw nobody meant to ask for is otherwise indistinguishable from
         a slow one.
         """
+        self.draw_in_flight = False
+        self.interactions.on_draw_finished()
+        if not self.report_draw_timing:
+            return
         requested = self._draw_requested
         caller = self._draw_caller
         self._draw_requested = None

@@ -46,6 +46,14 @@ MIN_DISPLAY_POINTS = 2_000
 # what leaves enough survivors after a y zoom has thrown most of them away.
 Y_CULL_OVERSAMPLE = 4
 
+# A frame drawn while the mouse is still moving is replaced before anyone
+# reads it, so it is drawn from fewer points. The figure itself costs about as
+# much as tens of thousands of points, so this is worth roughly a halving of
+# the frame and no more; the rest of making a drag follow the mouse is not
+# letting frames queue behind it.
+INTERACTIVE_DIVISOR = 8
+INTERACTIVE_DISPLAY_POINTS = 5_000
+
 
 def auto_point_size(ax, drawn_count: int) -> float:
     """Marker area for the given number of in-view points across the axes."""
