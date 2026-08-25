@@ -37,8 +37,15 @@ AUTO_SIZE_MAX = 144.0   # 12 point diameter
 # The display budget is shared across the plots that are visible, not granted
 # to each of them. One axes has one set of pixels however many captures are
 # loaded into it, and a per-plot cap multiplies the drawn point count by the
-# number of files, which is where the cost of loading many of them went. No
-# plot is cut below this many, so one among many is still a shape.
+# number of files.
+#
+# This number and the floor under it are both guesses. A scatter of dense data
+# is a density, and a density is not reproduced by any fixed number of points:
+# drawing sixteen per pixel column still differs from drawing everything over
+# ninety five percent of the lit pixels, and there is no count at which that
+# converges. What can be drawn exactly is the envelope, two per column being
+# what a column can hold, and until the renderer draws that these stay
+# guesses and are left where they were rather than traded for other guesses.
 MIN_DISPLAY_POINTS = 2_000
 
 # How many points past the budget the coarse stride keeps before the y cull

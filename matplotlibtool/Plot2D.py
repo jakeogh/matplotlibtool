@@ -975,7 +975,11 @@ class Plot2D(QMainWindow):
             x_ax.xaxis.label.set_color(text_color)
             x_ax.tick_params(axis="x", colors=text_color, labelcolor=text_color)
 
-        self.canvas.draw_idle()
+        # through request_render, which declines while the window is hidden.
+        # Called from the constructor this asked for a draw of an empty figure,
+        # and the toolkit got to it only after every capture had been added, so
+        # what it drew was all of them: a full render to recolour nothing.
+        self.request_render()
 
     # ===== signal handlers =====
 
