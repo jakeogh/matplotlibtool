@@ -43,9 +43,13 @@ class ViewportStatsManager:
     """
 
     BASE_BOTTOM = 0.12  # matches the Plot2D subplots_adjust default
-    ROW_HEIGHT = 0.039
-    MAX_ROWS = 6
     FONT_SIZE = 11.0
+    LINE_SPACING = 1.4
+    # the most of the figure the panel may take before rows are dropped. What
+    # a row costs is measured rather than assumed: a constant guessed against
+    # one font at one dpi reserves space no text occupies, and the axes give
+    # up that space to nothing.
+    MAX_PANEL_FRACTION = 0.35
 
     def __init__(self, viewer: Plot2D, *, enabled: bool = False) -> None:
         self.viewer = viewer
@@ -71,12 +75,25 @@ class ViewportStatsManager:
         self._cache_key: tuple | None = None
         self._cache_rows: list[str] | None = None
 
+    def _row_height(self) -> float:
+        """One row's height as a fraction of the figure, from its own metrics."""
+        return (
+            self.FONT_SIZE * self.LINE_SPACING / 72.0
+        ) / self.viewer.fig.get_figheight()
+
+    def max_rows(self) -> int:
+        """Rows that fit the panel budget at the current font and figure size."""
+        return max(1, int(self.MAX_PANEL_FRACTION / self._row_height()))
+
     def set_enabled(self, enabled: bool) -> None:
         self.enabled = enabled
         if not enabled and self._text is not None:
-            self._text.remove()
-            self._text = None
+            # hidden rather than removed: removing the artist means building
+            # it again on the way back, and the text is a few hundred bytes
+            self._text.set_visible(False)
             self._set_bottom(self.BASE_BOTTOM)
+        elif enabled and self._text is not None:
+            self._text.set_visible(True)
 
     def invalidate(self) -> None:
         """Drop what was computed, when what it was computed from has changed.
@@ -249,13 +266,13 @@ class ViewportStatsManager:
         if key == self._cache_key and self._cache_rows is not None:
             rows = self._cache_rows
         else:
-            rows = self.compute(xlim, limit=self.MAX_ROWS)
+            rows = self.compute(xlim, limit=self.max_rows())
             if self.header:
                 rows[0:0] = self.header.splitlines()
             self._cache_key = key
             self._cache_rows = rows
 
-        self._set_bottom(self.BASE_BOTTOM + self.ROW_HEIGHT * len(rows))
+        self._set_bottom(self.BASE_BOTTOM + self._row_height() * len(rows))
 
         body = "\n".join(rows)
         if self._text is None:

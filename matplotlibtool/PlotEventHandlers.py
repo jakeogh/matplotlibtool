@@ -760,9 +760,19 @@ class PlotEventHandlers:
         self.viewer.request_render()
 
     def on_statistics_toggled(self, checked: bool) -> None:
-        """Show or hide the statistics rows under the x axis."""
-        self.viewer.viewport_stats.set_enabled(checked)
-        self.viewer.request_render()
+        """Show or hide the statistics rows under the x axis.
+
+        The data has not changed, only how much of the figure the axes get, so
+        the points are not culled and the artists are not rebuilt. The marker
+        size follows the axes width and the panel takes height, so it does not
+        move either. Turning the rows on computes them once here rather than
+        waiting for a render that is not otherwise needed.
+        """
+        stats = self.viewer.viewport_stats
+        stats.set_enabled(checked)
+        if checked:
+            stats.update(tuple(self.viewer.ax.get_xlim()))
+        self.viewer.canvas.draw_idle()
 
     def on_statistics_report(self) -> None:
         """Every plot's statistics for the current window, in a copyable box."""
