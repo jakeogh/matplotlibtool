@@ -33,6 +33,7 @@ class ProcessedPlotData:
     draw_lines: bool
     line_color: str | None
     line_width: float
+    x_scale: float
     x_offset: float
     y_offset: float
     visible: bool
@@ -62,6 +63,7 @@ class PlotDataProcessor:
         color_field: str | None = None,
         normalize: bool = False,
         center: bool = False,
+        x_scale: float = 1.0,
         x_offset: float = 0.0,
         y_offset: float = 0.0,
         colormap: str | None = None,
@@ -144,8 +146,19 @@ class PlotDataProcessor:
                 f"Y field '{y_field}' not found in data. Available: {field_names}"
             )
 
-        # Extract X and Y data
-        x_data = data[x_field].astype(np.float32)
+        # Extract X and Y data. The scale is folded in here, where the column
+        # is being cast anyway, rather than materialised as a column of its
+        # own: widening a structured array to carry one more field rewrites
+        # every byte of it, and the column is read straight back out into
+        # these two and then discarded.
+        #
+        # The scale only, never the offset. Points are held at single
+        # precision, so an offset baked in here would spend the mantissa on
+        # the distance from the origin and quantise the samples: an hour of it
+        # collapses hundreds of them onto one x. The offset belongs to the
+        # overlay, which applies it in double precision when culling.
+        column = data[x_field]
+        x_data = (column * x_scale if x_scale != 1.0 else column).astype(np.float32)
         y_data = data[y_field].astype(np.float32)
         points_xy = np.column_stack((x_data, y_data))
 
@@ -200,6 +213,7 @@ class PlotDataProcessor:
             draw_lines=draw_lines,
             line_color=line_color,
             line_width=line_width,
+            x_scale=x_scale,
             x_offset=x_offset,
             y_offset=y_offset,
             visible=visible,

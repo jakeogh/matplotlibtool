@@ -53,6 +53,7 @@ class ArrayFieldManager:
         data: np.ndarray,
         x_field: str,
         y_field: str,
+        x_scale: float = 1.0,
         array_name: str | None = None,
         **properties,
     ) -> int:
@@ -76,6 +77,9 @@ class ArrayFieldManager:
         self.arrays[array_index] = {
             "data": data,
             "x_field": x_field,
+            # what the stored column has to be multiplied by to be the x the
+            # points were built on, for anything reading the array again
+            "x_scale": x_scale,
             "name": array_name or f"Array {array_index + 1}",
             "properties": properties,
         }

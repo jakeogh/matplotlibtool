@@ -868,9 +868,9 @@ class PlotEventHandlers:
                 )
             start, length = self._pixel_dc_window
             with self.viewer.busy_manager.busy_operation("Pixel DC"):
-                for plot_index, value_field, x_field, data in candidates:
+                for plot_index, value_field, x_field, x_scale, data in candidates:
                     self._pixel_dc[plot_index] = self._computed_pixel_dc(
-                        value_field, x_field, data, start, length
+                        value_field, x_field, x_scale, data, start, length
                     )
         self.viewer._update_plot()
         self.viewer.canvas.draw_idle()
@@ -879,6 +879,7 @@ class PlotEventHandlers:
         self,
         value_field: str,
         x_field: str,
+        x_scale: float,
         data: np.ndarray,
         start: int | None,
         length: int | None,
@@ -888,6 +889,7 @@ class PlotEventHandlers:
             data,
             value_field=value_field,
             x_field=x_field,
+            x_scale=x_scale,
             start=start,
             length=length,
         )
@@ -903,7 +905,7 @@ class PlotEventHandlers:
         )
         return overlay
 
-    def _pixel_dc_candidates(self) -> list[tuple[int, str, str, np.ndarray]]:
+    def _pixel_dc_candidates(self) -> list[tuple[int, str, str, float, np.ndarray]]:
         """(plot index, value field, x field, source array) for every visible
         plot whose source array carries a pixel field and whose values are
         pixel values.
@@ -929,7 +931,9 @@ class PlotEventHandlers:
             data = info["data"]
             if data.dtype.names is None or "pixel" not in data.dtype.names:
                 continue
-            candidates.append((plot_index, field, info["x_field"], data))
+            candidates.append(
+                (plot_index, field, info["x_field"], info["x_scale"], data)
+            )
         return candidates
 
     def recompute_pixel_dc(self) -> bool:

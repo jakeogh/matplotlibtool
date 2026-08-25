@@ -63,6 +63,7 @@ class PixelDCOverlay:
         value_field: str,
         pixel_field: str = "pixel",
         x_field: str = "sample",
+        x_scale: float = 1.0,
         idle_pixel: int = 0,
         start: int | None = None,
         length: int | None = None,
@@ -121,7 +122,7 @@ class PixelDCOverlay:
         # capture drawn against seconds, or against any axis but the raw
         # index, put these segments tens of thousands of units off screen and
         # looked like an overlay that had computed nothing.
-        x = data[x_field].astype(np.float64)
+        x = data[x_field].astype(np.float64) * x_scale
         self._x0 = x[s + start]
         self._x1 = x[stop - 1]
 
