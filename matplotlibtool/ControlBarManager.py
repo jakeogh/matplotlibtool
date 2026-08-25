@@ -64,6 +64,8 @@ class ControlBarSignals(QObject):
     prevFileRequested = pyqtSignal()
     nextFileRequested = pyqtSignal()
     gpioConfigureRequested = pyqtSignal()
+    statisticsToggled = pyqtSignal(bool)
+    statisticsReportRequested = pyqtSignal()
     peaksToggled = pyqtSignal(bool)
     saveDataRequested = pyqtSignal()
     screenshotRequested = pyqtSignal()
@@ -800,6 +802,26 @@ class ControlBarManager:
         layout.addWidget(gpio_cfg_btn)
         self.widgets["gpio_configure_btn"] = gpio_cfg_btn
 
+        stats_chk = QCheckBox("Stats")
+        stats_chk.setToolTip(
+            "Show one statistics row per visible plot under the x axis, over "
+            "the visible x window. Off costs nothing: with it clear the rows "
+            "are never computed."
+        )
+        stats_chk.toggled.connect(self.signals.statisticsToggled.emit)
+        layout.addWidget(stats_chk)
+        self.widgets["statistics_chk"] = stats_chk
+
+        stats_btn = QPushButton("Statistics")
+        stats_btn.setMaximumWidth(90)
+        stats_btn.setToolTip(
+            "Every plot's statistics for the current window in a window of "
+            "their own, selectable and copyable, with none left out."
+        )
+        stats_btn.clicked.connect(self.signals.statisticsReportRequested.emit)
+        layout.addWidget(stats_btn)
+        self.widgets["statistics_btn"] = stats_btn
+
         autocolor_chk = QCheckBox("Autocolor")
         autocolor_chk.setToolTip(
             "When every in-view point of a plot shares one color value (a "
@@ -1145,6 +1167,16 @@ class ControlBarManager:
         chk.blockSignals(True)
         chk.setChecked(checked)
         chk.blockSignals(False)
+
+    def set_statistics_checked(self, checked: bool) -> None:
+        """Set the box without emitting, for reflecting state set elsewhere."""
+        chk = self.widgets["statistics_chk"]
+        chk.blockSignals(True)
+        chk.setChecked(checked)
+        chk.blockSignals(False)
+
+    def is_statistics_checked(self) -> bool:
+        return self.widgets["statistics_chk"].isChecked()
 
     def set_gpio_checked(self, checked: bool) -> None:
         """Set the GPIO checkbox without emitting."""

@@ -31,6 +31,15 @@ class ViewportStatsManager:
 
     Tracking lanes (logic lines) carry timing rather than magnitude and are
     excluded.
+
+    Nothing is computed unless it is going to be shown. The rows cost a pass
+    over every visible point of every visible plot, so with the panel off the
+    update returns before touching an array, and with it on a view change that
+    left the x window where it was reuses what it already has. The window
+    itself is taken with a binary search rather than a boolean mask wherever a
+    plot's x is sorted, which is every plot whose x is a sample index or a
+    time: a mask allocates and scans the whole array to find a span that two
+    lookups locate.
     """
 
     BASE_BOTTOM = 0.12  # matches the Plot2D subplots_adjust default
@@ -59,6 +68,12 @@ class ViewportStatsManager:
         self.header: str | None = None
         self._text = None
         self._bottom = self.BASE_BOTTOM
+        self._cache_key: tuple | None = None
+        self._cache_rows: list[str] | None = None
+        # whether a plot's x is ascending, decided once per plot and kept: the
+        # answer cannot change without the points being replaced, and asking
+        # again costs the pass the answer exists to avoid
+        self._sorted: dict[int, bool] = {}
 
     def set_enabled(self, enabled: bool) -> None:
         self.enabled = enabled
@@ -66,6 +81,39 @@ class ViewportStatsManager:
             self._text.remove()
             self._text = None
             self._set_bottom(self.BASE_BOTTOM)
+
+    def invalidate(self) -> None:
+        """Drop what was computed, when what it was computed from has changed.
+
+        Called when plots are added, hidden or restyled. The x window alone
+        does not identify a set of rows: the same window over a different set
+        of visible plots is a different answer.
+        """
+        self._cache_key = None
+        self._cache_rows = None
+        self._sorted.clear()
+
+    def _window(self, plot, xlim: tuple[float, float]) -> np.ndarray:
+        """The plot's y values inside the x window.
+
+        Sorted x is the common case and the cheap one: two searches instead of
+        a full comparison and a full gather.
+        """
+        index = id(plot)
+        points = plot.points
+        x = points[:, 0]
+        ascending = self._sorted.get(index)
+        if ascending is None:
+            ascending = bool(x.size < 2 or np.all(np.diff(x) >= 0.0))
+            self._sorted[index] = ascending
+        lo = xlim[0] - plot.offset_x
+        hi = xlim[1] - plot.offset_x
+        if ascending:
+            start = int(np.searchsorted(x, lo, side="left"))
+            stop = int(np.searchsorted(x, hi, side="right"))
+            return points[start:stop, 1].astype(np.float64, copy=False)
+        keep = (x >= lo) & (x <= hi)
+        return points[keep, 1].astype(np.float64, copy=False)
 
     def restyle(self) -> None:
         if self._text is not None:
@@ -151,32 +199,71 @@ class ViewportStatsManager:
             piece += f" ({math.log2(adc_pp):.4g}/{self.adc_bits} bits)"
         return piece
 
-    def update(self, xlim: tuple[float, float]) -> None:
-        if not self.enabled:
-            return
+    def compute(
+        self,
+        xlim: tuple[float, float],
+        *,
+        limit: int | None = None,
+    ) -> list[str]:
+        """One row per visible plot, for the given x window.
 
+        limit caps the rows and adds a count of what was left out, which is
+        what the figure margin needs; without it every plot gets a row, which
+        is what the dialog needs.
+        """
         scale, offset, config = self._y_transform()
         rows: list[str] = []
         overflow = 0
         for index, plot in enumerate(self.viewer.plot_manager.get_all_plots()):
             if not plot.visible or plot.viewport_track or len(plot.points) == 0:
                 continue
-            if len(rows) == self.MAX_ROWS:
+            if limit is not None and len(rows) == limit:
                 overflow += 1
                 continue
-            x = plot.points[:, 0].astype(np.float64) + plot.offset_x
-            y = plot.points[:, 1].astype(np.float64)
-            y = y[(x >= xlim[0]) & (x <= xlim[1])]
+            y = self._window(plot, xlim)
             adc_pp = None
             if self.show_adc_pp and y.size:
                 adc_pp = float(y.max() - y.min())
-            y = y * scale + offset
+            if scale != 1.0 or offset != 0.0:
+                y = y * scale + offset
             name = self.viewer.plot_manager.get_plot_name(index) or f"p{index}"
             rows.append(self._row(name, y, config, adc_pp))
         if overflow:
             rows.append(f"... +{overflow} more")
+        return rows
+
+    def report(self, xlim: tuple[float, float]) -> str:
+        """Every plot's statistics, uncapped, for copying out."""
+        rows = self.compute(xlim, limit=None)
         if self.header:
             rows[0:0] = self.header.splitlines()
+        rows[0:0] = [f"x window: {xlim[0]:.10g} .. {xlim[1]:.10g}", ""]
+        return "\n".join(rows)
+
+    def update(self, xlim: tuple[float, float]) -> None:
+        if not self.enabled:
+            return
+
+        # the same window over the same plots is the same answer, and a view
+        # change that only moved y leaves both alone
+        key = (
+            xlim,
+            self.show_adc_pp,
+            self.adc_bits,
+            self.header,
+            tuple(
+                (id(plot), plot.visible, plot.offset_x)
+                for plot in self.viewer.plot_manager.get_all_plots()
+            ),
+        )
+        if key == self._cache_key and self._cache_rows is not None:
+            rows = self._cache_rows
+        else:
+            rows = self.compute(xlim, limit=self.MAX_ROWS)
+            if self.header:
+                rows[0:0] = self.header.splitlines()
+            self._cache_key = key
+            self._cache_rows = rows
 
         self._set_bottom(self.BASE_BOTTOM + self.ROW_HEIGHT * len(rows))
 

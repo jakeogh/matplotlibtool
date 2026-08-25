@@ -17,6 +17,7 @@ from .PixelAnalysis import PixelAnalysisError
 from .PixelAnalysis import analyse_pixels
 from .PixelAnalysis import format_report
 from .GpioLaneDialog import GpioLaneDialog
+from .StatisticsDialog import StatisticsDialog
 from .PixelDCOverlay import PixelDCOverlay
 from .FFTAnalysis import FFTPeakArtists
 from .FFTAnalysis import FFTResult
@@ -49,6 +50,7 @@ class PlotEventHandlers:
         self._pixel_dc: dict[int, PixelDCOverlay] = {}
         self._gpio_hidden: set[str] = set()
         self._gpio_dialog: GpioLaneDialog | None = None
+        self._statistics_dialog: StatisticsDialog | None = None
         self._pixel_dc_window: tuple[int | None, int | None] = (None, None)
         self._fft_windows: list = []
         self._peak_artists = None
@@ -756,6 +758,33 @@ class PlotEventHandlers:
         """List the raw-code peak-to-peak span in the viewport statistics."""
         self.viewer.viewport_stats.show_adc_pp = checked
         self.viewer.request_render()
+
+    def on_statistics_toggled(self, checked: bool) -> None:
+        """Show or hide the statistics rows under the x axis."""
+        self.viewer.viewport_stats.set_enabled(checked)
+        self.viewer.request_render()
+
+    def on_statistics_report(self) -> None:
+        """Every plot's statistics for the current window, in a copyable box."""
+        if self._statistics_dialog is not None:
+            self._statistics_dialog.close()
+            self._statistics_dialog = None
+
+        def take() -> str:
+            return self.viewer.viewport_stats.report(
+                tuple(self.viewer.ax.get_xlim())
+            )
+
+        self._statistics_dialog = StatisticsDialog(
+            self.viewer.control_bar_manager.parent,
+            text=take(),
+            on_refresh=take,
+        )
+        self._statistics_dialog.destroyed.connect(self._on_statistics_closed)
+        self._statistics_dialog.show()
+
+    def _on_statistics_closed(self, *_args) -> None:
+        self._statistics_dialog = None
 
     def on_prev_file(self) -> None:
         self.viewer.load_adjacent_file(-1)

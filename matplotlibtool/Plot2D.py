@@ -286,6 +286,10 @@ class Plot2D(QMainWindow):
         if self._custom_bounds_provided:
             self.control_bar_integration.update_view_bounds_display()
 
+        # the box reflects however the viewer was constructed, so a caller
+        # that turned the rows off is not contradicted by a checked box
+        self.control_bar_manager.set_statistics_checked(self.viewport_stats.enabled)
+
         status_label = self.control_bar_manager.get_widget("status_label")
         if status_label is None:
             raise RuntimeError(
@@ -638,6 +642,10 @@ class Plot2D(QMainWindow):
             y_field,
             added_index,
         )
+
+        # a new plot changes what the statistics are taken over, and the cache
+        # is keyed on the window rather than on the contents
+        self.viewport_stats.invalidate()
 
         group_id = PlotGroupContext.create_auto_group_for_array(
             viewer=self,

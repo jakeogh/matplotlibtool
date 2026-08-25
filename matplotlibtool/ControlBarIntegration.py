@@ -71,6 +71,10 @@ class ControlBarIntegration:
             "prevFileRequested": self.viewer.event_handlers.on_prev_file,
             "nextFileRequested": self.viewer.event_handlers.on_next_file,
             "gpioConfigureRequested": self.viewer.event_handlers.on_gpio_configure,
+            "statisticsToggled": self.viewer.event_handlers.on_statistics_toggled,
+            "statisticsReportRequested": (
+                self.viewer.event_handlers.on_statistics_report
+            ),
             "peaksToggled": self.viewer.event_handlers.on_peaks_toggled,
             "saveDataRequested": self.viewer.event_handlers.on_save_data,
             "screenshotRequested": self.viewer.event_handlers.on_screenshot,
