@@ -41,6 +41,11 @@ AUTO_SIZE_MAX = 144.0   # 12 point diameter
 # plot is cut below this many, so one among many is still a shape.
 MIN_DISPLAY_POINTS = 2_000
 
+# How many points past the budget the coarse stride keeps before the y cull
+# runs. The stride is a view, so what it skips costs nothing; the surplus is
+# what leaves enough survivors after a y zoom has thrown most of them away.
+Y_CULL_OVERSAMPLE = 4
+
 
 def auto_point_size(ax, drawn_count: int) -> float:
     """Marker area for the given number of in-view points across the axes."""
@@ -121,6 +126,16 @@ class Matplotlib2DRenderer:
             | None
         ] = []
         max_x_count = 0
+        # the budget is known before the cull, so the cull can stride down to
+        # it rather than gathering everything and then throwing most of it away
+        drawn_plots = sum(
+            1 for plot in plots if plot.visible and len(plot.points) > 0
+        )
+        budget = (
+            max(MIN_DISPLAY_POINTS, max_display_points // drawn_plots)
+            if drawn_plots
+            else max_display_points
+        )
         for plot, color_range, color_override in zip(
             plots, color_ranges, color_overrides
         ):
@@ -135,11 +150,13 @@ class Matplotlib2DRenderer:
             x = points[:, 0]
             y = points[:, 1]
             if plot.x_ascending:
-                # two searches instead of a comparison against every point,
-                # and the y cull then runs over the span the x cull kept
-                # rather than over the whole record. The indices stay absolute
-                # so the colour arrays below index the same way they always
-                # did.
+                # Two searches locate the span, then it is strided down to a
+                # few times the budget before anything is compared or copied.
+                # Nothing here is ever proportional to the record: a pan with
+                # the whole capture in view costs the same as one zoomed in,
+                # and loading more files does not make panning slower. The
+                # indices stay absolute so the colour arrays below index the
+                # same way they always did.
                 lo = int(np.searchsorted(x, cx0, side="left"))
                 hi = int(np.searchsorted(x, cx1, side="right"))
                 max_x_count = max(
@@ -147,8 +164,11 @@ class Matplotlib2DRenderer:
                     int(np.searchsorted(x, view_xlim[1], side="right"))
                     - int(np.searchsorted(x, view_xlim[0], side="left")),
                 )
-                span = y[lo:hi]
-                idx = lo + np.flatnonzero((span >= cy0) & (span <= cy1))
+                coarse = max(1, (hi - lo) // (budget * Y_CULL_OVERSAMPLE))
+                span = y[lo:hi:coarse]
+                idx = lo + coarse * np.flatnonzero(
+                    (span >= cy0) & (span <= cy1)
+                )
             else:
                 mask_x = (x >= cx0) & (x <= cx1)
                 max_x_count = max(
@@ -164,27 +184,10 @@ class Matplotlib2DRenderer:
                 prepared.append(None)
                 continue
 
-            prepared.append((plot, color_range, color_override, points, idx))
-
-        drawn_plots = sum(1 for entry in prepared if entry is not None)
-        budget = (
-            max(MIN_DISPLAY_POINTS, max_display_points // drawn_plots)
-            if drawn_plots
-            else max_display_points
-        )
-        for position, entry in enumerate(prepared):
-            if entry is None:
-                continue
-            plot, color_range, color_override, points, idx = entry
             if idx.size > budget:
-                step = -(-idx.size // budget)  # ceil div
-                prepared[position] = (
-                    plot,
-                    color_range,
-                    color_override,
-                    points,
-                    idx[::step],
-                )
+                idx = idx[:: -(-idx.size // budget)]  # ceil div
+
+            prepared.append((plot, color_range, color_override, points, idx))
 
         self.last_drawn_points = sum(
             entry[4].size for entry in prepared if entry is not None
