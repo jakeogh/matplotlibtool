@@ -785,9 +785,13 @@ class ControlBarManager:
         gpio_chk.setToolTip(
             "Show the decoded GPIO logic lines as labelled lanes stacked "
             "against the view. Every decoded line has a lane whether it "
-            "toggles or not; Configure chooses which appear."
+            "toggles or not; Configure chooses which appear. Greyed out when "
+            "the capture was loaded without them: decoding them costs a pass "
+            "over every record and eight more lanes to draw, so it is asked "
+            "for rather than assumed."
         )
-        gpio_chk.setChecked(True)
+        gpio_chk.setChecked(False)
+        gpio_chk.setEnabled(False)
         gpio_chk.toggled.connect(self.signals.gpioToggled.emit)
         layout.addWidget(gpio_chk)
         self.widgets["gpio_chk"] = gpio_chk
@@ -799,6 +803,7 @@ class ControlBarManager:
             "line gives up its lane and the stack closes the gap."
         )
         gpio_cfg_btn.clicked.connect(self.signals.gpioConfigureRequested.emit)
+        gpio_cfg_btn.setEnabled(False)
         layout.addWidget(gpio_cfg_btn)
         self.widgets["gpio_configure_btn"] = gpio_cfg_btn
 
@@ -1177,6 +1182,16 @@ class ControlBarManager:
 
     def is_statistics_checked(self) -> bool:
         return self.widgets["statistics_chk"].isChecked()
+
+    def set_gpio_available(self, available: bool) -> None:
+        """Enable the GPIO controls once a capture has brought lanes with it.
+
+        Nothing to show is not the same as chosen not to show: a checkbox that
+        can be ticked and then does nothing says the lanes are missing when
+        they were never decoded.
+        """
+        for name in ("gpio_chk", "gpio_configure_btn"):
+            self.widgets[name].setEnabled(available)
 
     def set_gpio_checked(self, checked: bool) -> None:
         """Set the GPIO checkbox without emitting."""

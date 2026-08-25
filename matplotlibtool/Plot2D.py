@@ -106,6 +106,7 @@ class Plot2D(QMainWindow):
         draw_lines: bool = False,
         embedded: bool = False,
         viewport_stats: bool = False,
+        gpio: bool = False,
     ):
         self._owns_qapp = False
         self._app = QApplication.instance()
@@ -207,6 +208,9 @@ class Plot2D(QMainWindow):
         self.renderer = Matplotlib2DRenderer()
         self._track_labels: list = []
         self.viewport_stats = ViewportStatsManager(self, enabled=viewport_stats)
+        # whether the caller decoded the logic lanes at all. The checkbox
+        # governs lanes that were loaded; it cannot show what was never read.
+        self.gpio_requested = gpio
         self.interactions = Plot2DInteractions(
             self,
             self.ax,
@@ -286,9 +290,10 @@ class Plot2D(QMainWindow):
         if self._custom_bounds_provided:
             self.control_bar_integration.update_view_bounds_display()
 
-        # the box reflects however the viewer was constructed, so a caller
+        # the boxes reflect however the viewer was constructed, so a caller
         # that turned the rows off is not contradicted by a checked box
         self.control_bar_manager.set_statistics_checked(self.viewport_stats.enabled)
+        self.control_bar_manager.set_gpio_checked(self.gpio_requested)
 
         status_label = self.control_bar_manager.get_widget("status_label")
         if status_label is None:
@@ -646,6 +651,9 @@ class Plot2D(QMainWindow):
         # a new plot changes what the statistics are taken over, and the cache
         # is keyed on the window rather than on the contents
         self.viewport_stats.invalidate()
+
+        if viewport_track:
+            self.control_bar_manager.set_gpio_available(True)
 
         group_id = PlotGroupContext.create_auto_group_for_array(
             viewer=self,
