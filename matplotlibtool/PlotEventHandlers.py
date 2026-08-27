@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import math
 import time
+from dataclasses import dataclass
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
@@ -32,6 +33,24 @@ from .SettleAnalysis import SettleAnalysisError
 from .SettleAnalysis import x_formatter
 from .SettleAnalysis import analyze_settle
 from .SettleAnalysis import text_color
+
+
+@dataclass(frozen=True)
+class PixelDCCandidate:
+    """A visible plot that can carry a pixel DC overlay, and what to build it from.
+
+    Named rather than a tuple because it was a tuple: it gained an x field and
+    a scale for the overlay to place its segments with, one of the two places
+    that unpack it was updated, and the other went on expecting three values
+    until a plot with a pixel field was drawn. A record cannot be unpacked
+    wrongly, and the next field costs nobody an audit of every consumer.
+    """
+
+    plot_index: int
+    value_field: str
+    x_field: str
+    x_scale: float
+    data: np.ndarray
 
 
 class PlotEventHandlers:
@@ -868,28 +887,26 @@ class PlotEventHandlers:
                 )
             start, length = self._pixel_dc_window
             with self.viewer.busy_manager.busy_operation("Pixel DC"):
-                for plot_index, value_field, x_field, x_scale, data in candidates:
-                    self._pixel_dc[plot_index] = self._computed_pixel_dc(
-                        value_field, x_field, x_scale, data, start, length
+                for candidate in candidates:
+                    self._pixel_dc[candidate.plot_index] = self._computed_pixel_dc(
+                        candidate, start, length
                     )
         self.viewer._update_plot()
         self.viewer.canvas.draw_idle()
 
     def _computed_pixel_dc(
         self,
-        value_field: str,
-        x_field: str,
-        x_scale: float,
-        data: np.ndarray,
+        candidate: PixelDCCandidate,
         start: int | None,
         length: int | None,
     ) -> PixelDCOverlay:
+        value_field = candidate.value_field
         overlay = PixelDCOverlay(self.viewer.ax)
         overlay.compute(
-            data,
+            candidate.data,
             value_field=value_field,
-            x_field=x_field,
-            x_scale=x_scale,
+            x_field=candidate.x_field,
+            x_scale=candidate.x_scale,
             start=start,
             length=length,
         )
@@ -905,7 +922,7 @@ class PlotEventHandlers:
         )
         return overlay
 
-    def _pixel_dc_candidates(self) -> list[tuple[int, str, str, float, np.ndarray]]:
+    def _pixel_dc_candidates(self) -> list[PixelDCCandidate]:
         """(plot index, value field, x field, source array) for every visible
         plot whose source array carries a pixel field and whose values are
         pixel values.
@@ -932,7 +949,13 @@ class PlotEventHandlers:
             if data.dtype.names is None or "pixel" not in data.dtype.names:
                 continue
             candidates.append(
-                (plot_index, field, info["x_field"], info["x_scale"], data)
+                PixelDCCandidate(
+                    plot_index=plot_index,
+                    value_field=field,
+                    x_field=info["x_field"],
+                    x_scale=info["x_scale"],
+                    data=data,
+                )
             )
         return candidates
 
@@ -968,16 +991,16 @@ class PlotEventHandlers:
 
     def _reconcile_pixel_dc(self) -> None:
         candidates = self._pixel_dc_candidates()
-        visible = {plot_index for plot_index, _, _ in candidates}
+        visible = {candidate.plot_index for candidate in candidates}
         for plot_index in [i for i in self._pixel_dc if i not in visible]:
             self._pixel_dc.pop(plot_index).clear()
-        missing = [c for c in candidates if c[0] not in self._pixel_dc]
+        missing = [c for c in candidates if c.plot_index not in self._pixel_dc]
         if missing:
             start, length = self._pixel_dc_window
             with self.viewer.busy_manager.busy_operation("Pixel DC"):
-                for plot_index, value_field, data in missing:
-                    self._pixel_dc[plot_index] = self._computed_pixel_dc(
-                        value_field, data, start, length
+                for candidate in missing:
+                    self._pixel_dc[candidate.plot_index] = self._computed_pixel_dc(
+                        candidate, start, length
                     )
         if not self._pixel_dc:
             raise PixelAnalysisError(
