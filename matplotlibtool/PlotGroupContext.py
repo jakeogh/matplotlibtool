@@ -68,8 +68,6 @@ class PlotGroupContext:
 
     def __enter__(self) -> PlotGroupContext:
         """Enter the plot group context."""
-        print(f"[INFO] Starting plot group with color_field='{self.color_field}'")
-
         # Disable rendering during accumulation
         self._original_busy_state = self.viewer.busy_manager.is_busy
 
@@ -89,13 +87,7 @@ class PlotGroupContext:
 
         # Calculate global color range
         if not self.accumulated_plots:
-            print("[INFO] No plots accumulated in plot group")
             return
-
-        print(f"[INFO] Finalizing plot group: {len(self.accumulated_plots)} plots")
-        print(
-            f"[INFO] Global color range: [{self.global_color_min:.3f}, {self.global_color_max:.3f}]"
-        )
 
         # Generate group name if not provided
         if self.group_name is None:
@@ -125,10 +117,6 @@ class PlotGroupContext:
         # Update UI
         self.viewer.control_bar_integration.refresh_plot_selector()
         self.viewer.control_bar_integration.sync_controls_to_selection()
-
-        print(
-            f"[INFO] Plot group '{self.group_name}' finalized: {len(self.accumulated_plots)} plots added (group_id={group_id})"
-        )
 
     def add_plot(
         self,
@@ -360,10 +348,6 @@ class PlotGroupContext:
                 if global_color_min is not None
                 else (0.0, 1.0)
             ),
-        )
-
-        print(
-            f"[INFO] Auto-created plot group '{array_name}' (group_id={group_id}) for array {array_index}"
         )
 
         return group_id
