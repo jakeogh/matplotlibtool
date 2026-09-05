@@ -651,6 +651,8 @@ class PlotEventHandlers:
             f"[INFO]   record:  {res.n_samples:,} samples, "
             f"x {res.x0:.6g} .. {res.x1:.6g}, spacing {res.dx:.6g}"
         )
+        for note in res.notes:
+            print(f"[INFO]   note:    {note}")
         if spec.averages > 1:
             print(
                 f"[INFO]   fft:     nfft {spec.nfft}, {spec.averages} x {WINDOW} "

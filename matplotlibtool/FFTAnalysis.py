@@ -61,7 +61,9 @@ OVERLAP = 0.75
 MIN_SAMPLES = 32
 MIN_NFFT = 1024
 MAX_NFFT = 1 << 20
-SPACING_TOL = 1e-3          # relative deviation of dx that still counts as uniform
+SPACING_TOL = 1e-3          # relative deviation of dx below which x is simply uniform
+JITTER_TOL = 0.1            # deviation up to this fraction of the period is clock jitter
+GAP_FRACTION = 0.005        # more gaps than this fraction of intervals is not a sampled series
 REPORT_PEAKS = 8
 PEAK_LABEL_COLOR = "#ff8c00"
 
@@ -129,6 +131,7 @@ class FFTResult:
     y_unit: str                 # unit of the amplitudes, "" when y is unscaled
     density: Density            # multiresolution asd, 1/T-ish to Nyquist
     bands: tuple[BandFloor, ...]    # floor density per decade, from the density
+    notes: tuple[str, ...]      # what was tolerated about the sampling, for the report
 
     @property
     def db_unit(self) -> str:
@@ -185,13 +188,7 @@ def analyze_fft(
     dx_med = float(np.median(dx))
     if dx_med <= 0.0:
         raise FFTAnalysisError("fft: duplicate x values, sample spacing is zero")
-    bad = int(np.count_nonzero(np.abs(dx - dx_med) > SPACING_TOL * dx_med))
-    if bad:
-        raise FFTAnalysisError(
-            f"fft: x is not uniformly sampled: {bad} of {dx.size} intervals "
-            f"deviate more than {SPACING_TOL:.0%} from the median spacing "
-            f"{dx_med:.6g}"
-        )
+    dx_med, notes = _sampling(dx, dx_med)
 
     if sample_rate_hz:
         samplerate = sample_rate_hz / dx_med   # x-units are samples
@@ -235,4 +232,46 @@ def analyze_fft(
         y_unit=y_unit,
         density=density,
         bands=decade_floors(density),
+        notes=notes,
     )
+
+
+def _sampling(dx: np.ndarray, dx_med: float) -> tuple[float, tuple[str, ...]]:
+    """The sample period to transform at, and what had to be tolerated.
+
+    A series reduced from a faster stream, one value per dwell, carries the
+    dwell period on the stream's sample counter: the period is not a whole
+    number of samples, so the spacing jitters by one, and a pause between
+    frames leaves a gap once a frame. That is a uniformly sampled series
+    with a slightly quantized clock, and the period is the mean spacing
+    with the gaps left out. A series whose spacing varies more than that is
+    not a sampled signal, and its spectrum would be a spectrum of the
+    irregularity; it is refused, with the remedy.
+    """
+    deviation = np.abs(dx - dx_med)
+    if not np.any(deviation > SPACING_TOL * dx_med):
+        return dx_med, ()
+    gap = deviation > JITTER_TOL * dx_med
+    gaps = int(np.count_nonzero(gap))
+    if gaps > GAP_FRACTION * dx.size:
+        raise FFTAnalysisError(
+            f"fft: x is not a sampled series: {gaps} of {dx.size} intervals are "
+            f"gaps against the median spacing {dx_med:.6g} (largest {dx.max():.6g}). "
+            f"This looks like a reduced or decimated plot; transform the sample "
+            f"stream itself (for a capture: plot it --raw)"
+        )
+    regular = dx[~gap]
+    period = float(regular.mean())
+    jitter = int(np.count_nonzero(deviation[~gap] > SPACING_TOL * dx_med))
+    notes = [
+        f"x spacing jitters by up to {float(deviation[~gap].max()):.3g} on {jitter} of "
+        f"{dx.size} intervals: a clock quantized on the sample counter; transformed at "
+        f"the mean period {period:.6g} instead of the median {dx_med:.6g}"
+    ]
+    if gaps:
+        notes.append(
+            f"{gaps} gap(s) of up to {float(dx[gap].max()):.6g} (one per "
+            f"{dx.size // gaps:,} points) treated as absent: expect a weak line at "
+            f"that rate and its harmonics"
+        )
+    return period, tuple(notes)
