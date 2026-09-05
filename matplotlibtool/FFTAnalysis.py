@@ -11,7 +11,10 @@ samples is not the spectrum of the signal and pretending otherwise would be
 worse than refusing.
 
 The frequency axis is in Hz when the viewer's sample rate is set (x-units are
-then samples), otherwise cycles per x-unit. Long records are reduced to an
+then samples), otherwise cycles per x-unit. The amplitude axis is in the
+viewer's y unit when one is set (dBV for volts, with the floor reported as a
+density in V/sqrt(Hz)), otherwise in whatever the y values are, typically ADC
+codes. Long records are reduced to an
 averaged Blackman-Harris power spectrum sized for a stable noise floor; short
 records get a single full-length transform. The DC bin and its window skirt
 are removed after mean detrending - they carry no spectral information and
@@ -66,6 +69,7 @@ class FFTPeakArtists:
         self._artists = []
 
     def draw(self, peaks: tuple[Peak, ...], formatter) -> None:
+        """`formatter` turns a Peak into its label text."""
         self.clear()
         for peak in peaks:
             self._artists.append(
@@ -81,7 +85,7 @@ class FFTPeakArtists:
             )
             self._artists.append(
                 self.ax.annotate(
-                    formatter(peak.frequency),
+                    formatter(peak),
                     (peak.frequency, peak.db),
                     textcoords="offset points",
                     xytext=(6, -2),
@@ -95,6 +99,13 @@ class FFTPeakArtists:
 
 
 @dataclass(frozen=True)
+class BandFloor:
+    low: float
+    high: float
+    asd_median: float           # median amplitude spectral density in the band
+
+
+@dataclass(frozen=True)
 class FFTResult:
     spectrum: Spectrum          # DC bin and skirt removed
     floor: NoiseFloor
@@ -105,6 +116,34 @@ class FFTResult:
     dx: float                   # sample spacing, x-units
     samplerate: float           # in frequency_unit * 2 Nyquist terms
     frequency_unit: str         # Hz when the viewer sample rate is set, else cyc/x
+    y_unit: str                 # unit of the amplitudes, "" when y is unscaled
+    bands: tuple[BandFloor, ...]    # floor density per decade of frequency
+
+    @property
+    def db_unit(self) -> str:
+        """Label for the dB axis: dBV for volts, dB re unit otherwise."""
+        if self.y_unit == "V":
+            return "dBV"
+        if self.y_unit:
+            return f"dB re {self.y_unit}"
+        return "dB"
+
+
+def decade_floors(spec: Spectrum) -> tuple[BandFloor, ...]:
+    """Median amplitude spectral density per decade across the spectrum: the
+    shape of a noise floor in a few numbers, where a full-band rms hides a
+    1/f rise or a shelf."""
+    frequencies = spec.frequencies
+    top = float(frequencies[-1])
+    low = 10.0 ** math.floor(math.log10(float(frequencies[0])))
+    bands = []
+    while low < top:
+        high = low * 10.0
+        mask = (frequencies >= low) & (frequencies < min(high, top * (1.0 + 1e-9)))
+        if np.count_nonzero(mask) >= 8:
+            bands.append(BandFloor(low, min(high, top), float(np.median(spec.asd[mask]))))
+        low = high
+    return tuple(bands)
 
 
 def analyze_fft(
@@ -112,10 +151,15 @@ def analyze_fft(
     y: np.ndarray,
     view_xlim: tuple[float, float],
     sample_rate_hz: float | None,
+    y_unit_scale: float = 1.0,
+    y_unit: str = "",
 ) -> FFTResult:
+    """`y_unit_scale` is physical units per y value (volts per ADC code, for
+    a raw capture) and `y_unit` names them; both default to the y values as
+    they are."""
     order = np.argsort(x, kind="stable")
     x = np.asarray(x, dtype=np.float64)[order]
-    y = np.asarray(y, dtype=np.float64)[order]
+    y = np.asarray(y, dtype=np.float64)[order] * y_unit_scale
 
     sel = (x >= view_xlim[0]) & (x <= view_xlim[1])
     xs = x[sel]
@@ -172,4 +216,6 @@ def analyze_fft(
         dx=dx_med,
         samplerate=samplerate,
         frequency_unit=frequency_unit,
+        y_unit=y_unit,
+        bands=decade_floors(spec),
     )

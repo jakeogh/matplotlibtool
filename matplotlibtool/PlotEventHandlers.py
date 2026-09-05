@@ -616,6 +616,8 @@ class PlotEventHandlers:
                 plot.points[:, 1] * plot.y_scale + plot.offset_y,
                 xlim,
                 self.viewer.sample_rate_hz,
+                self.viewer.y_unit_scale,
+                self.viewer.y_unit,
             )
         self._report_fft(name, res)
         self._open_spectrum_window(name, res)
@@ -625,6 +627,20 @@ class PlotEventHandlers:
             eng = EngFormatter(unit="Hz", places=3)
             return lambda value: eng(value)
         return lambda value: f"{value:.6g} cyc/x"
+
+    def _amplitude_formatter(self, res: FFTResult):
+        """Amplitudes in the y unit with an engineering prefix, so a floor
+        reads 18.1 nV/√Hz and a spur 0.1 µV rather than 3.04e-08 and
+        1.02e-07; unscaled y values are printed as they are."""
+        if res.y_unit:
+            eng = EngFormatter(unit=res.y_unit, places=2)
+            return lambda value: eng(value)
+        return lambda value: f"{value:.4g}"
+
+    def _peak_label(self, res: FFTResult):
+        freq = self._freq_formatter(res)
+        amp = self._amplitude_formatter(res)
+        return lambda peak: f"{freq(peak.frequency)}  {amp(peak.amplitude)} pk"
 
     def _report_fft(self, name: str, res: FFTResult) -> None:
         spec = res.spectrum
@@ -645,17 +661,24 @@ class PlotEventHandlers:
             f"[INFO]   rbw:     {fmt(spec.binwidth)}"
             f"  (enbw {fmt(spec.enbw_hz)})"
         )
+        amp = self._amplitude_formatter(res)
+        root = f"/\u221a{res.frequency_unit}"
         print(
-            f"[INFO]   floor:   median {res.floor.median_db:+.1f} dB, "
-            f"asd {res.floor.asd_median:.3g} y/\u221a{res.frequency_unit}, "
-            f"band rms {res.floor.rms:.6g}"
+            f"[INFO]   floor:   median {res.floor.median_db:+.1f} {res.db_unit}, "
+            f"asd {amp(res.floor.asd_median)}{root}, "
+            f"rms {amp(res.floor.rms)} over the band"
         )
+        for band in res.bands:
+            print(
+                f"[INFO]   band:    {fmt(band.low):>11} .. {fmt(band.high):<11} "
+                f"median asd {amp(band.asd_median)}{root}"
+            )
         if not res.peaks:
             print("[INFO]   peaks:   none above the floor + 10 dB threshold")
         for rank, peak in enumerate(res.peaks, start=1):
             print(
                 f"[INFO]   peak {rank}:  {fmt(peak.frequency)}, "
-                f"{peak.db:+.1f} dB (amp {peak.amplitude:.6g}, "
+                f"{peak.db:+.1f} {res.db_unit} ({amp(peak.amplitude)} pk, "
                 f"snr {peak.snr_db:.1f} dB)"
             )
 
@@ -672,7 +695,7 @@ class PlotEventHandlers:
             self._peak_artists = FFTPeakArtists(self.viewer.ax)
         if enabled:
             self._peak_artists.draw(
-                self._fft_source.peaks, self._freq_formatter(self._fft_source)
+                self._fft_source.peaks, self._peak_label(self._fft_source)
             )
         else:
             self._peak_artists.clear()
@@ -715,6 +738,15 @@ class PlotEventHandlers:
             ),
             floor=replace(
                 res.floor, asd_median=res.floor.asd_median / math.sqrt(factor)
+            ),
+            bands=tuple(
+                replace(
+                    band,
+                    low=band.low * factor,
+                    high=band.high * factor,
+                    asd_median=band.asd_median / math.sqrt(factor),
+                )
+                for band in res.bands
             ),
             samplerate=new_fs,
             frequency_unit=unit,
@@ -1163,7 +1195,7 @@ class PlotEventHandlers:
         window.setWindowTitle(f"FFT: {name}")
         color = "white" if window.dark_mode else "black"
         window.ax.set_xlabel(f"frequency [{res.frequency_unit}]", color=color)
-        window.ax.set_ylabel("amplitude [dB]", color=color)
+        window.ax.set_ylabel(f"amplitude [{res.db_unit}]", color=color)
         window.event_handlers.attach_spectrum(
             res, window.plot_manager.get_plot_count() - 1
         )

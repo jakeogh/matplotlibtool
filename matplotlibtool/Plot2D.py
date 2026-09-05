@@ -238,6 +238,11 @@ class Plot2D(QMainWindow):
         # follow the mouse is not queueing frames behind it.
         self.max_display_points = 100_000
         self.sample_rate_hz: float | None = None
+        # physical units per y value and their name: an FFT of ADC codes
+        # reports its floor in V/sqrt(Hz) and its peaks in volts through
+        # these, and the plot itself stays in codes
+        self.y_unit_scale: float = 1.0
+        self.y_unit: str = ""
         self.max_line_segments = 10_000
         self.cull_margin = 0.25
 
