@@ -95,7 +95,7 @@ class CoordinateTransformEngine:
             scale_factor=scale_factor,
         )
 
-        return transformed.astype(np.float32), params
+        return transformed.astype(np.float64), params
 
     def center_points(self, points: np.ndarray) -> tuple[np.ndarray, TransformParams]:
         """
@@ -122,7 +122,7 @@ class CoordinateTransformEngine:
 
         params = TransformParams(transform_type="center", center=center.copy())
 
-        return transformed.astype(np.float32), params
+        return transformed.astype(np.float64), params
 
     def raw_points(self, points: np.ndarray) -> tuple[np.ndarray, TransformParams]:
         """
@@ -136,7 +136,7 @@ class CoordinateTransformEngine:
         """
         working_points = points[:, : self.dimensions]
         params = TransformParams("raw")
-        return working_points.astype(np.float32), params
+        return working_points.astype(np.float64), params
 
     def apply_transform(
         self,
@@ -177,4 +177,4 @@ class CoordinateTransformEngine:
         else:
             raise ValueError(f"Unknown transform type: {params.transform_type}")
 
-        return transformed.astype(np.float32)
+        return transformed.astype(np.float64)

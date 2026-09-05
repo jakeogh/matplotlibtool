@@ -152,14 +152,15 @@ class PlotDataProcessor:
         # every byte of it, and the column is read straight back out into
         # these two and then discarded.
         #
-        # The scale only, never the offset. Points are held at single
-        # precision, so an offset baked in here would spend the mantissa on
-        # the distance from the origin and quantise the samples: an hour of it
-        # collapses hundreds of them onto one x. The offset belongs to the
-        # overlay, which applies it in double precision when culling.
+        # Double precision, because x is a sample counter. A float32 carries
+        # twenty four bits of integer exactly, and a capture passes sample
+        # 16,777,216 eight seconds in; past it neighbouring samples round to
+        # one x and every spacing read off the plot is wrong. The scale only,
+        # never the offset: the offset belongs to the overlay, which applies
+        # it when culling.
         column = data[x_field]
-        x_data = (column * x_scale if x_scale != 1.0 else column).astype(np.float32)
-        y_data = data[y_field].astype(np.float32)
+        x_data = (column * x_scale if x_scale != 1.0 else column).astype(np.float64)
+        y_data = data[y_field].astype(np.float64)
         points_xy = np.column_stack((x_data, y_data))
 
         # Extract color data if specified

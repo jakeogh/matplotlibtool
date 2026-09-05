@@ -724,7 +724,7 @@ class PlotEventHandlers:
 
         plot = self.viewer.plot_manager.plots[self._fft_plot_index]
         plot.points = np.column_stack((spec.frequencies, spec.db)).astype(
-            np.float32
+            np.float64
         )
         array_index = self.viewer.array_field_integration.array_index_for_plot(
             self._fft_plot_index

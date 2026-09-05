@@ -144,9 +144,9 @@ class Overlay:
         """
         pts = self.points
         if self.y_scale != 1.0:
-            pts = pts * np.array([1.0, self.y_scale], dtype=np.float32)
+            pts = pts * np.array([1.0, self.y_scale], dtype=np.float64)
         if self.offset_x != 0.0 or self.offset_y != 0.0:
-            pts = pts + np.array([self.offset_x, self.offset_y], dtype=np.float32)
+            pts = pts + np.array([self.offset_x, self.offset_y], dtype=np.float64)
         if self.settle_ref is None:
             return pts
 
@@ -163,7 +163,7 @@ class Overlay:
         # degenerate case to render at one code, not to raise from a paint path
         floor = float(positive.min()) * 0.5 if positive.size else 1.0
 
-        out = np.empty_like(pts, dtype=np.float32)
+        out = np.empty_like(pts, dtype=np.float64)
         out[:, 0] = pts[:, 0]
         out[:, 1] = np.log10(np.maximum(residual, floor))
 

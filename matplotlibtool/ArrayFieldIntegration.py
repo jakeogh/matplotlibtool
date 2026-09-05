@@ -174,7 +174,7 @@ class ArrayFieldIntegration:
             )
 
         info["data"] = data
-        x = data[info["x_field"]].astype(np.float32)
+        x = data[info["x_field"]].astype(np.float64)
         transform_params = info["properties"]["transform_params"]
         color_field = info["properties"].get("color_field")
         color_data = None
@@ -189,7 +189,7 @@ class ArrayFieldIntegration:
         for field, plot_index in manager.array_fields[array_index].items():
             if plot_index is None:
                 continue
-            points_xy = np.column_stack((x, data[field].astype(np.float32)))
+            points_xy = np.column_stack((x, data[field].astype(np.float64)))
             self.viewer.plot_manager.replace_plot_points(
                 plot_index,
                 self.viewer.transform_engine.apply_transform(
@@ -233,8 +233,8 @@ class ArrayFieldIntegration:
 
         points_xy = np.column_stack(
             (
-                data[x_field].astype(np.float32),
-                data[field_name].astype(np.float32),
+                data[x_field].astype(np.float64),
+                data[field_name].astype(np.float64),
             )
         )
 
