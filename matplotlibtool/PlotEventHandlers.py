@@ -621,6 +621,7 @@ class PlotEventHandlers:
             )
         self._report_fft(name, res)
         self._open_spectrum_window(name, res)
+        self._open_density_window(name, res)
 
     def _freq_formatter(self, res: FFTResult):
         if res.frequency_unit == "Hz":
@@ -668,6 +669,11 @@ class PlotEventHandlers:
             f"asd {amp(res.floor.asd_median)}{root}, "
             f"rms {amp(res.floor.rms)} over the band"
         )
+        for stage in res.density.stages:
+            print(
+                f"[INFO]   density: /{stage.decimation:<6} {fmt(stage.low):>11} .. "
+                f"{fmt(stage.high):<11} nfft {stage.nfft}, {stage.averages} average(s)"
+            )
         for band in res.bands:
             print(
                 f"[INFO]   band:    {fmt(band.low):>11} .. {fmt(band.high):<11} "
@@ -1208,6 +1214,56 @@ class PlotEventHandlers:
         window.activateWindow()
         self._fft_windows.append(window)
         print(f"[INFO] Spectrum window opened: FFT: {name} ({len(spec):,} bins)")
+
+    def _open_density_window(self, name: str, res: FFTResult) -> None:
+        """The multiresolution density on a log frequency axis: the viewer
+        draws linear data, so the x field is log10 of the frequency."""
+        from .Plot2D import Plot2D   # deferred: Plot2D imports this module
+
+        density = res.density
+        arr = np.zeros(
+            len(density),
+            dtype=[
+                ("log10_frequency", np.float64),
+                ("db", np.float64),
+                ("frequency", np.float64),
+                ("asd", np.float64),
+            ],
+        )
+        arr["log10_frequency"] = np.log10(density.frequencies)
+        arr["db"] = density.db
+        arr["frequency"] = density.frequencies
+        arr["asd"] = density.asd
+
+        window = Plot2D(
+            auto_aspect=True,
+            dark_mode=self.viewer.dark_mode,
+            embedded=True,
+        )
+        window.save_beside = self.viewer.source_file or self.viewer.save_beside
+        window.add_plot(
+            arr,
+            x_field="log10_frequency",
+            y_field="db",
+            draw_lines=True,
+            point_size=0.5,
+            line_width=1.0,
+            plot_name=f"{name} density",
+        )
+        window.setWindowTitle(f"Density: {name}")
+        color = "white" if window.dark_mode else "black"
+        window.ax.set_xlabel(f"log10 frequency [{res.frequency_unit}]", color=color)
+        window.ax.set_ylabel(
+            f"density [{res.db_unit}/\u221a{res.frequency_unit}]", color=color
+        )
+        window.show()
+        window.raise_()
+        window.activateWindow()
+        self._fft_windows.append(window)
+        print(
+            f"[INFO] Density window opened: {name} "
+            f"({len(density):,} bins, {len(density.stages)} stages)"
+        )
 
     def on_grid_changed(self, grid_text: str):
         with self.viewer.busy_manager.busy_operation("Updating grid"):

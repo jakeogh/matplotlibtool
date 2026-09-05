@@ -14,11 +14,19 @@ The frequency axis is in Hz when the viewer's sample rate is set (x-units are
 then samples), otherwise cycles per x-unit. The amplitude axis is in the
 viewer's y unit when one is set (dBV for volts, with the floor reported as a
 density in V/sqrt(Hz)), otherwise in whatever the y values are, typically ADC
-codes. Long records are reduced to an
-averaged Blackman-Harris power spectrum sized for a stable noise floor; short
-records get a single full-length transform. The DC bin and its window skirt
-are removed after mean detrending - they carry no spectral information and
-would otherwise own the dB autoscale.
+codes. Long records are reduced to an averaged Blackman-Harris power spectrum
+sized for a stable noise floor; short records get a single full-length
+transform. The DC bin and its window skirt are removed after mean detrending
+- they carry no spectral information and would otherwise own the dB
+autoscale.
+
+Two views come out of one analysis. The amplitude spectrum has one bin width
+and reads tones directly in volts peak; its bottom bin is the sample rate
+over 2^20, a couple of hertz at 2 MS/s however long the record. The density
+is multiresolution: the same full-rate spectrum at the top, then decimated
+stages down to a few bins above 1/T, on a log frequency axis in V/sqrt(Hz),
+which is the datasheet unit for noise and the only way a 0.1 Hz line and a
+1 MHz floor sit on one plot.
 """
 
 from __future__ import annotations
@@ -27,12 +35,14 @@ import math
 from dataclasses import dataclass
 
 import numpy as np
+from pyfft import Density
 from pyfft import NoiseFloor
 from pyfft import Peak
 from pyfft import Spectrum
 from pyfft import average_spectrum
 from pyfft import compute_spectrum
 from pyfft import find_peaks
+from pyfft import multiresolution_density
 from pyfft import noise_floor
 
 
@@ -117,7 +127,8 @@ class FFTResult:
     samplerate: float           # in frequency_unit * 2 Nyquist terms
     frequency_unit: str         # Hz when the viewer sample rate is set, else cyc/x
     y_unit: str                 # unit of the amplitudes, "" when y is unscaled
-    bands: tuple[BandFloor, ...]    # floor density per decade of frequency
+    density: Density            # multiresolution asd, 1/T-ish to Nyquist
+    bands: tuple[BandFloor, ...]    # floor density per decade, from the density
 
     @property
     def db_unit(self) -> str:
@@ -129,11 +140,11 @@ class FFTResult:
         return "dB"
 
 
-def decade_floors(spec: Spectrum) -> tuple[BandFloor, ...]:
-    """Median amplitude spectral density per decade across the spectrum: the
-    shape of a noise floor in a few numbers, where a full-band rms hides a
-    1/f rise or a shelf."""
-    frequencies = spec.frequencies
+def decade_floors(density: Density) -> tuple[BandFloor, ...]:
+    """Median amplitude spectral density per decade: the shape of a noise
+    floor in a few numbers, where a full-band rms hides a 1/f rise or a
+    shelf."""
+    frequencies = density.frequencies
     top = float(frequencies[-1])
     low = 10.0 ** math.floor(math.log10(float(frequencies[0])))
     bands = []
@@ -141,7 +152,7 @@ def decade_floors(spec: Spectrum) -> tuple[BandFloor, ...]:
         high = low * 10.0
         mask = (frequencies >= low) & (frequencies < min(high, top * (1.0 + 1e-9)))
         if np.count_nonzero(mask) >= 8:
-            bands.append(BandFloor(low, min(high, top), float(np.median(spec.asd[mask]))))
+            bands.append(BandFloor(low, min(high, top), float(np.median(density.asd[mask]))))
         low = high
     return tuple(bands)
 
@@ -202,6 +213,11 @@ def analyze_fft(
     else:
         spec = compute_spectrum(ys, samplerate, window=WINDOW)
 
+    density = multiresolution_density(
+        ys, samplerate, nfft=spec.nfft, window=WINDOW, overlap=OVERLAP,
+        first=spec if spec.averages > 1 else None,
+    )
+
     # bin 0 holds only the detrend residual; the skirt above it is window
     # leakage of that residual, not signal
     spec = spec[spec.binwidth * 0.5 :].cut_dc()
@@ -217,5 +233,6 @@ def analyze_fft(
         samplerate=samplerate,
         frequency_unit=frequency_unit,
         y_unit=y_unit,
-        bands=decade_floors(spec),
+        density=density,
+        bands=decade_floors(density),
     )
