@@ -20,8 +20,7 @@ from __future__ import annotations
 import sys
 from collections.abc import Callable
 from collections.abc import Iterable
-from concurrent.futures import Future
-from concurrent.futures import ThreadPoolExecutor
+import threading
 from contextlib import contextmanager
 from pathlib import Path
 from time import perf_counter
@@ -76,6 +75,36 @@ from .ViewManager import X_PAD_RATIO
 from .ViewManager import Y_PAD_RATIO
 from .ViewManager import ViewManager
 from .ViewportStats import ViewportStatsManager
+
+
+class Preload:
+    """One capture being decoded on its own thread for the next button.
+
+    A daemon thread rather than an executor: an executor's workers are joined
+    at interpreter exit, so closing the window mid decode left the process
+    sitting on a parse nobody would read. A daemon stops with the process.
+    The result is set by the thread and read after `join`; a decode that
+    raises leaves it None and the traceback goes to stderr from the thread
+    itself, so nothing is stored to be dropped later.
+    """
+
+    def __init__(self, key: Path, target: Path, parse) -> None:
+        self.key = key
+        self.target = target
+        self.started = perf_counter()
+        self.result: tuple[tuple[int, int], np.ndarray] | None = None
+        self.thread = threading.Thread(
+            target=self._run, args=(parse,), name="nav-preload", daemon=True
+        )
+
+    @classmethod
+    def start(cls, key: Path, target: Path, parse) -> Preload:
+        preload = cls(key, target, parse)
+        preload.thread.start()
+        return preload
+
+    def _run(self, parse) -> None:
+        self.result = parse(self.target)
 
 
 class Plot2D(QMainWindow):
@@ -198,10 +227,7 @@ class Plot2D(QMainWindow):
         # back and forth swaps instead of re-decoding; one background worker
         # opportunistically parses the next file while the operator looks
         self.navigation_cache = NavigationCache()
-        self._preload_executor = ThreadPoolExecutor(
-            max_workers=1, thread_name_prefix="nav-preload"
-        )
-        self._preload: tuple[Path, Future] | None = None
+        self._preload: Preload | None = None
         self._render_holds = 0
 
         # Performance
@@ -1186,19 +1212,24 @@ class Plot2D(QMainWindow):
                 file=sys.stderr,
             )
             return cached
-        if self._preload is not None and self._preload[0] == target.resolve():
-            _, future = self._preload
+        if self._preload is not None and self._preload.key == target.resolve():
+            preload = self._preload
             self._preload = None
-            stat, data = future.result()
-            self.navigation_cache.put(target, stat, data)
-            refreshed = self.navigation_cache.get(target)
-            if refreshed is not None:
-                print(
-                    f"[nav] preload hit {target.name} (decoded in background)",
-                    file=sys.stderr,
-                )
-                return refreshed
-            # the file changed while the preload parsed it; fall through
+            preload.thread.join()
+            # a decode that raised has already printed its traceback from
+            # its own thread and left nothing here; the parse below raises
+            # the same thing on this one
+            if preload.result is not None:
+                stat, data = preload.result
+                self.navigation_cache.put(target, stat, data)
+                refreshed = self.navigation_cache.get(target)
+                if refreshed is not None:
+                    print(
+                        f"[nav] preload hit {target.name} (decoded in background)",
+                        file=sys.stderr,
+                    )
+                    return refreshed
+                # the file changed while the preload parsed it; fall through
         t0 = perf_counter()
         stat, data = self._navigation_parse(target)
         print(
@@ -1217,12 +1248,12 @@ class Plot2D(QMainWindow):
         if target is None:
             return
         key = target.resolve()
-        if self._preload is not None and self._preload[0] == key:
+        if self._preload is not None and self._preload.key == key:
             return
         if self.navigation_cache.get(target) is not None:
             return
         print(f"[nav] preload start {target.name}", file=sys.stderr)
-        self._preload = (key, self._preload_executor.submit(self._navigation_parse, target))
+        self._preload = Preload.start(key, target, self._navigation_parse)
 
     def _on_plot_added(self, plot_index: int):
         plot = self.plot_manager.plots[plot_index]
@@ -1414,7 +1445,16 @@ class Plot2D(QMainWindow):
             return
         self._shutdown_done = True
 
-        self._preload_executor.shutdown(wait=False, cancel_futures=True)
+        if self._preload is not None and self._preload.thread.is_alive():
+            # a decode in flight cannot be interrupted and is not waited
+            # for: the thread is a daemon and stops with the process
+            print(
+                f"[nav] background decode of {self._preload.target.name} still "
+                f"running after {perf_counter() - self._preload.started:.1f}s; "
+                f"not waiting for it",
+                file=sys.stderr,
+            )
+        self._preload = None
         self.timer.stop()
         self.clock_timer.stop()
         super().close()
