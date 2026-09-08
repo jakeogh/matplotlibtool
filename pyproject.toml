@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "matplotlibtool"
-version = "1!0.0.1788849300"
+version = "1!0.0.1788850318"
 description = "2D and 3D matplotlib plotting lib for structured arrays"
 authors = [
     { name = "Justin Keogh", email = "github.com@v6y.net" },
@@ -16,9 +16,9 @@ dependencies = [
     "pint",
     "vispy",
     "asserttool @ git+https://github.com/jakeogh/asserttool@4bd23a06c2161e488415acde89c29537e6720cc1",
-    "click-auto-help @ git+https://github.com/jakeogh/click-auto-help@c53f57c78529a51ae9b03f579d7ee6f2d63ca03a",
+    "click-auto-help @ git+https://github.com/jakeogh/click-auto-help@7bc2bfd39c7fc11eba09f70861d5121900d1243a",
     "clicktool @ git+https://github.com/jakeogh/clicktool@4bc98af7590652693aef664af7485acde40688c2",
-    "configtool @ git+https://github.com/jakeogh/configtool@50ab9c8f39f83efffa02d86f23a8d937d5f24cf8",
+    "configtool @ git+https://github.com/jakeogh/configtool@c076c6a33e23a624f0a98e4d0ffbc9ca72e0f007",
     "pyfft @ git+https://github.com/jakeogh/pyfft@7003b427a34d08c7055bd527ca8356081ea77f55",
     "iiosuite @ git+ssh://git@github.com/DentonGroup/iiosuite@97d3bf132f7c7b268db48901dd17427a824743d8",
 ]
