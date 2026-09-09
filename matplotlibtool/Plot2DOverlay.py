@@ -10,6 +10,26 @@ from typing import Any
 import numpy as np
 
 
+def lane_placement(ylim: tuple[float, float], slot: int, slot_count: int, amplitude: float = 0.12) -> tuple[float, float, float]:
+    """Where lane `slot` of `slot_count` sits over a view: its baseline, the
+    height of a full swing, and where its label goes, in the view's y
+    units. Lanes run top-down from the middle of the view, each centred in
+    its band with a gap to its neighbours, and the stack compresses once it
+    would fill most of the view. The one arithmetic every viewer that lays
+    logic lanes over data uses, so the lanes look the same everywhere."""
+    low, high = ylim
+    span = high - low
+    mid = low + span / 2.0
+    pitch = amplitude * 1.5
+    if pitch * slot_count > 0.85:
+        pitch = 0.85 / slot_count
+    height = pitch / 1.5 * span
+    lane_top = mid + span * (pitch * slot_count / 2.0 - slot * pitch)
+    baseline = lane_top - span * pitch / 2.0 - height / 2.0
+    label_y = lane_top - span * pitch / 2.0
+    return baseline, height, label_y
+
+
 @dataclass
 class Overlay:
     """Configuration and state for a single plot."""
@@ -93,25 +113,14 @@ class Overlay:
         low. On the baseline regardless, a lane forced high for a whole
         capture would read as low.
         """
-        low, high = ylim
-        span = high - low
-        mid = low + span / 2.0
-        pitch = self.viewport_amplitude * 1.5
-        if pitch * slot_count > 0.85:
-            pitch = 0.85 / slot_count
-        amplitude = pitch / 1.5
-        lane_top = mid + span * (pitch * slot_count / 2.0 - slot * pitch)
-        baseline = lane_top - span * (pitch + amplitude) / 2.0
-        self.track_label_y = lane_top - span * pitch / 2.0
+        baseline, height, self.track_label_y = lane_placement(ylim, slot, slot_count, self.viewport_amplitude)
         raw_low, raw_high = self.raw_y_range()
         raw_span = raw_high - raw_low
-        if raw_span <= 0.0 or span <= 0.0:
+        if raw_span <= 0.0 or (ylim[1] - ylim[0]) <= 0.0:
             self.y_scale = 0.0
-            self.offset_y = baseline + (
-                amplitude * span if raw_high > 0.0 else 0.0
-            )
+            self.offset_y = baseline + (height if raw_high > 0.0 else 0.0)
             return
-        self.y_scale = amplitude * span / raw_span
+        self.y_scale = height / raw_span
         self.offset_y = baseline - raw_low * self.y_scale
 
     @property
