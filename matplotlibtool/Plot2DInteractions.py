@@ -159,14 +159,18 @@ class Plot2DInteractions:
     # ---------- wheel zoom ----------
 
     def on_mouse_scroll(self, event):
-        """Zoom anchored at the cursor position."""
-        if event.inaxes is None:
+        """Zoom anchored at the cursor position.
+
+        Inside the plot both axes zoom. Above or below it, where the x axes
+        are drawn, only x does, and beside it only y: the same reading of
+        the canvas the zoom box makes. A corner belongs to neither axis.
+        """
+        bbox = self.ax.get_window_extent()
+        over_x = bbox.x0 <= event.x <= bbox.x1
+        over_y = bbox.y0 <= event.y <= bbox.y1
+        if not (over_x or over_y):
             return
 
-        xlim = self.ax.get_xlim()
-        ylim = self.ax.get_ylim()
-
-        bbox = self.ax.get_window_extent()
         if bbox.width == 0 or bbox.height == 0:
             mouse_frac_x = 0.5
             mouse_frac_y = 0.5
@@ -174,24 +178,28 @@ class Plot2DInteractions:
             mouse_frac_x = min(1.0, max(0.0, (event.x - bbox.x0) / bbox.width))
             mouse_frac_y = min(1.0, max(0.0, (event.y - bbox.y0) / bbox.height))
 
-        x_mouse = xlim[0] + mouse_frac_x * (xlim[1] - xlim[0])
-        y_mouse = ylim[0] + mouse_frac_y * (ylim[1] - ylim[0])
-
         zoom_factor = 1.1 if event.step > 0 else 1.0 / 1.1
-        new_x_range = (xlim[1] - xlim[0]) / zoom_factor
-        new_y_range = (ylim[1] - ylim[0]) / zoom_factor
-
-        new_xlim = (
-            x_mouse - mouse_frac_x * new_x_range,
-            x_mouse + (1.0 - mouse_frac_x) * new_x_range,
-        )
-        new_ylim = (
-            y_mouse - mouse_frac_y * new_y_range,
-            y_mouse + (1.0 - mouse_frac_y) * new_y_range,
-        )
+        # an axis the wheel is not over keeps its limits as they are, not
+        # recomputed to themselves
+        xlim = self.ax.get_xlim()
+        ylim = self.ax.get_ylim()
+        new_xlim = self._zoomed(xlim, mouse_frac_x, zoom_factor) if over_x else xlim
+        new_ylim = self._zoomed(ylim, mouse_frac_y, zoom_factor) if over_y else ylim
 
         self.viewer.keyboard_manager.clear_input_state()
         self.viewer.set_view(new_xlim, new_ylim, coalesce=True)
+
+    @staticmethod
+    def _zoomed(
+        limits: tuple[float, float],
+        fraction: float,
+        zoom_factor: float,
+    ) -> tuple[float, float]:
+        """Limits scaled about the point ``fraction`` of the way along them."""
+        low, high = limits
+        anchor = low + fraction * (high - low)
+        span = (high - low) / zoom_factor
+        return (anchor - fraction * span, anchor + (1.0 - fraction) * span)
 
     # ---------- panning ----------
 
