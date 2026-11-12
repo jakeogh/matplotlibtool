@@ -72,9 +72,6 @@ class Overlay:
     _range_cache: tuple[int, tuple[float, float]] | None = field(
         default=None, init=False, repr=False
     )
-    _norm_cache: tuple[int, float, float, np.ndarray] | None = field(
-        default=None, init=False, repr=False
-    )
     _ascending_cache: tuple[int, bool] | None = field(
         default=None, init=False, repr=False
     )
@@ -189,18 +186,21 @@ class Overlay:
             )
         return self._range_cache[1]
 
-    def normalized_colors(self, vmin: float, vmax: float) -> np.ndarray:
-        """color_data mapped to [0, 1] over (vmin, vmax), cached."""
-        key = id(self.color_data)
-        cache = self._norm_cache
-        if cache is not None and cache[0] == key and cache[1] == vmin and cache[2] == vmax:
-            return cache[3]
+    def normalized_colors(
+        self,
+        idx: np.ndarray,
+        vmin: float,
+        vmax: float,
+    ) -> np.ndarray:
+        """color_data at idx mapped to [0, 1] over (vmin, vmax).
 
+        Only the points being drawn are normalized. The range follows the
+        view when the palette is fitted to it, so a full-length result would
+        be recomputed on every pan, and gathering first costs the same as
+        indexing a cached one.
+        """
         span = vmax - vmin
         if span > 1e-9:
-            norm = (self.color_data.astype(np.float32) - vmin) / span
-        else:
-            norm = np.full(len(self.color_data), 0.5, dtype=np.float32)
-
-        self._norm_cache = (key, vmin, vmax, norm)
-        return norm
+            colors = self.color_data[idx].astype(np.float32, copy=False)
+            return (colors - vmin) / span
+        return np.full(len(idx), 0.5, dtype=np.float32)

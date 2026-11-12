@@ -43,6 +43,7 @@ class ControlBarSignals(QObject):
     lineWidthChanged = pyqtSignal(float)
     linesToggled = pyqtSignal(bool)
     paletteChanged = pyqtSignal(str)
+    paletteViewToggled = pyqtSignal(bool)
     darkModeToggled = pyqtSignal(bool)
     colorFieldChanged = pyqtSignal(str)
 
@@ -646,7 +647,7 @@ class ControlBarManager:
         return row
 
     def _create_row3(self) -> QWidget:
-        """Create third control row: View bounds and offset controls."""
+        """Create third control row: View bounds, offset controls, palette in view."""
         row = QWidget()
         layout = QHBoxLayout(row)
         layout.setContentsMargins(
@@ -673,6 +674,17 @@ class ControlBarManager:
         offset_widgets = self._create_offset_controls()
         for widget in offset_widgets:
             layout.addWidget(widget)
+
+        palette_view_chk = QCheckBox("Palette in view")
+        palette_view_chk.setToolTip(
+            "Spread the palette over the color values inside the current "
+            "view instead of over the whole record, so points that are close "
+            "on the full scale stay distinguishable when zoomed in. Plots "
+            "that share a color scale keep sharing it."
+        )
+        palette_view_chk.toggled.connect(self.signals.paletteViewToggled.emit)
+        layout.addWidget(palette_view_chk)
+        self.widgets["palette_view_chk"] = palette_view_chk
 
         layout.addStretch()
         return row

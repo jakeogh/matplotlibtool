@@ -66,3 +66,77 @@ def autocolor_overrides(
             np.clip(distance / dmax, 0.0, 1.0).astype(np.float32)
         )
     return overrides
+
+
+def _view_color_span(
+    plot: Overlay,
+    xlim: tuple[float, float],
+    ylim: tuple[float, float],
+) -> tuple[float, float] | None:
+    """(min, max) of the plot's color values inside the view, None if empty."""
+    points = plot.display_points()
+    x = points[:, 0]
+    y = points[:, 1]
+    if plot.x_ascending:
+        lo = int(np.searchsorted(x, xlim[0], side="left"))
+        hi = int(np.searchsorted(x, xlim[1], side="right"))
+        y = y[lo:hi]
+        colors = plot.color_data[lo:hi][(y >= ylim[0]) & (y <= ylim[1])]
+    else:
+        colors = plot.color_data[
+            (x >= xlim[0]) & (x <= xlim[1]) & (y >= ylim[0]) & (y <= ylim[1])
+        ]
+    if colors.size == 0:
+        return None
+    return float(colors.min()), float(colors.max())
+
+
+def view_color_ranges(
+    plots: Sequence[Overlay],
+    color_ranges: Sequence[tuple[float, float] | None],
+    *,
+    xlim: tuple[float, float],
+    ylim: tuple[float, float],
+) -> list[tuple[float, float] | None]:
+    """Normalization ranges narrowed to the color values inside the view.
+
+    A range taken over the whole record spends the palette on values that
+    are off screen: zoomed onto a few dm0049 pixels out of thousands, the
+    points in view differ by a sliver of the scale and render as near
+    identical shades. Narrowing the range to the values in view spreads the
+    whole palette across what is on screen.
+
+    Plots that share a full range share a color scale (a group, or the
+    fields of one array), and keep sharing one: their in-view spans are
+    pooled, so a color value still maps to the same shade on each of them.
+    A scale with nothing in view keeps its full range, as do tracking
+    overlays, which the view positions and so are always inside it.
+
+    The span is taken over every in-view point rather than the drawn
+    subsample, so it does not move with the display budget.
+    """
+    pooled: dict[tuple[float, float], tuple[float, float]] = {}
+    fitted: list[bool] = []
+    for plot, full_range in zip(plots, color_ranges):
+        fit = (
+            full_range is not None
+            and plot.visible
+            and not plot.viewport_track
+            and len(plot.points) > 0
+        )
+        fitted.append(fit)
+        if not fit:
+            continue
+        span = _view_color_span(plot, xlim, ylim)
+        if span is None:
+            continue
+        seen = pooled.get(full_range)
+        pooled[full_range] = (
+            span
+            if seen is None
+            else (min(seen[0], span[0]), max(seen[1], span[1]))
+        )
+    return [
+        pooled.get(full_range, full_range) if fit else full_range
+        for fit, full_range in zip(fitted, color_ranges)
+    ]

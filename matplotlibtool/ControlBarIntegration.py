@@ -56,6 +56,7 @@ class ControlBarIntegration:
             "lineWidthChanged": self.viewer.event_handlers.on_line_width_changed,
             "linesToggled": self.viewer.event_handlers.on_lines_toggled,
             "paletteChanged": self.viewer.event_handlers.on_palette_changed,
+            "paletteViewToggled": self.viewer.event_handlers.on_palette_view_toggled,
             "colorFieldChanged": self.viewer.event_handlers.on_color_field_changed,
             "darkModeToggled": self.viewer.event_handlers.on_dark_mode_toggled,
             # Analysis controls

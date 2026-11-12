@@ -47,6 +47,7 @@ from PyQt6.QtWidgets import QWidget
 
 from .ArrayFieldIntegration import ArrayFieldIntegration
 from .AutoColor import autocolor_overrides
+from .AutoColor import view_color_ranges
 from .AxisSecondaryIntegration import AxisSecondaryIntegration
 from .BusyIndicatorManager import BusyIndicatorManager
 from .NavigationCache import NavigationCache
@@ -203,6 +204,8 @@ class Plot2D(QMainWindow):
         self.event_handlers = PlotEventHandlers(self)
 
         self.autocolor_enabled = True
+        # normalize colors over the values in view instead of the full record
+        self.palette_view_enabled = False
         # stroke width of the GPIO logic lanes; the Configure dialog adjusts it
         self.gpio_line_width = 0.6
         # the file the plots were loaded from, when there was exactly one;
@@ -861,6 +864,13 @@ class Plot2D(QMainWindow):
                 color_ranges.append(
                     global_range if global_range is not None else plot.color_range()
                 )
+        if self.palette_view_enabled:
+            color_ranges = view_color_ranges(
+                all_plots,
+                color_ranges,
+                xlim=current_bounds.xlim,
+                ylim=current_bounds.ylim,
+            )
 
         self.renderer.render(
             self.ax,

@@ -174,6 +174,11 @@ class PlotEventHandlers:
             return
         self._set_selected_property("colormap", palette_name)
 
+    def on_palette_view_toggled(self, checked: bool) -> None:
+        """Toggle spreading the palette over the color values in view."""
+        self.viewer.palette_view_enabled = checked
+        self.viewer.request_render()
+
     def on_visibility_toggled(self, visible: bool):
         if self.viewer.plot_manager.is_group_selected():
             group_id = self.viewer.plot_manager.selected_group_id

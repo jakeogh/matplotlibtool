@@ -222,7 +222,7 @@ class Matplotlib2DRenderer:
             if color_override is not None:
                 display_colors = color_override[idx]
             elif plot.color_data is not None and color_range is not None:
-                display_colors = plot.normalized_colors(*color_range)[idx]
+                display_colors = plot.normalized_colors(idx, *color_range)
             else:
                 display_colors = None
 
