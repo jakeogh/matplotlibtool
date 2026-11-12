@@ -205,7 +205,7 @@ class Plot2D(QMainWindow):
 
         self.autocolor_enabled = True
         # normalize colors over the values in view instead of the full record
-        self.palette_view_enabled = False
+        self.palette_view_enabled = True
         # stroke width of the GPIO logic lanes; the Configure dialog adjusts it
         self.gpio_line_width = 0.6
         # the file the plots were loaded from, when there was exactly one;
@@ -831,7 +831,6 @@ class Plot2D(QMainWindow):
 
     def _update_plot(self):
         """Re-render all plots at the current view bounds."""
-        current_bounds = self.view_manager.get_current_bounds()
         all_plots = self.plot_manager.get_all_plots()
 
         # With secondary (twin) axes matplotlib requires adjustable='datalim'
@@ -839,6 +838,10 @@ class Plot2D(QMainWindow):
             self.ax.set_aspect("auto", adjustable="datalim")
         else:
             self.ax.set_aspect("equal", adjustable="datalim")
+            # an equal aspect widens one axis at draw time; applied now so the
+            # cull and the color range work from the window the draw shows
+            self.ax.apply_aspect()
+        current_bounds = self.view_manager.get_current_bounds()
 
         # a hidden lane gives up its slot: the stack is laid out over the
         # visible lines only, so removing one closes the gap

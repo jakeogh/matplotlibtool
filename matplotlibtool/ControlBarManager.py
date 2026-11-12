@@ -682,6 +682,7 @@ class ControlBarManager:
             "on the full scale stay distinguishable when zoomed in. Plots "
             "that share a color scale keep sharing it."
         )
+        palette_view_chk.setChecked(True)
         palette_view_chk.toggled.connect(self.signals.paletteViewToggled.emit)
         layout.addWidget(palette_view_chk)
         self.widgets["palette_view_chk"] = palette_view_chk

@@ -200,7 +200,7 @@ class Overlay:
         indexing a cached one.
         """
         span = vmax - vmin
-        if span > 1e-9:
+        if span > 0.0:
             colors = self.color_data[idx].astype(np.float32, copy=False)
             return (colors - vmin) / span
         return np.full(len(idx), 0.5, dtype=np.float32)
