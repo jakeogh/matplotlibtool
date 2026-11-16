@@ -222,6 +222,10 @@ class Plot2D(QMainWindow):
         # The registered Add loader is a fallback only: when it parses to a
         # different dtype than the arrays on screen, the swap must use this.
         self.navigation_loader: Callable[[Path], "np.ndarray"] | None = None
+        # why a capture is not to be loaded at all, or None: consulted before
+        # previous/next parses one and before the next is decoded ahead
+        self.navigation_refusal: Callable[[Path], str | None] | None = None
+        self._preload_refused: Path | None = None
         # inotify-backed watch on the source file's folder keeps the
         # previous/next buttons truthful without polling
         self._folder_watcher = QFileSystemWatcher(self)
@@ -1160,6 +1164,10 @@ class Plot2D(QMainWindow):
             which = "previous" if step < 0 else "next"
             print(f"[INFO] file navigation: no {which} {self.source_file.suffix} file")
             return
+        refused = None if self.navigation_refusal is None else self.navigation_refusal(target)
+        if refused is not None:
+            print(f"[INFO] file navigation: not loading {target.name}: {refused}")
+            return
         # the decode can take seconds; the badge and wait cursor paint
         # before it blocks, so the button press visibly took
         t_start = perf_counter()
@@ -1269,6 +1277,13 @@ class Plot2D(QMainWindow):
         if self._preload is not None and self._preload.key == key:
             return
         if self.navigation_cache.get(target) is not None:
+            return
+        if self._preload_refused == key:
+            return
+        refused = None if self.navigation_refusal is None else self.navigation_refusal(target)
+        if refused is not None:
+            self._preload_refused = key
+            print(f"[nav] no preload of {target.name}: {refused}", file=sys.stderr)
             return
         print(f"[nav] preload start {target.name}", file=sys.stderr)
         self._preload = Preload.start(key, target, self._navigation_parse)
