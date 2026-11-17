@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "matplotlibtool"
-version = "1!0.0.1794876332"
+version = "1!0.0.1794877722"
 description = "2D and 3D matplotlib plotting lib for structured arrays"
 authors = [
     { name = "Justin Keogh", email = "github.com@v6y.net" },
@@ -20,7 +20,7 @@ dependencies = [
     "clicktool @ git+https://github.com/jakeogh/clicktool@fe263331c27a4b392ce04261d83267759098d6b7",
     "configtool @ git+https://github.com/jakeogh/configtool@c9ef75bb018ae8e6900907d0a10ee33ae4392e32",
     "pyfft @ git+https://github.com/jakeogh/pyfft@7003b427a34d08c7055bd527ca8356081ea77f55",
-    "iiosuite @ git+ssh://git@github.com/DentonGroup/iiosuite@4478c8d61a3271a3a1ea4439a4e24351cfc3c2ed",
+    "iiosuite @ git+ssh://git@github.com/DentonGroup/iiosuite@629f325e2c8c8a88322205a5ac49e778aeefdefb",
 ]
 license = "ISC"
 requires-python = ">=3.11"
