@@ -4,20 +4,29 @@
 """
 Plot2DRenderer - Matplotlib/NumPy renderer for 2D point clouds.
 
-Owns viewport culling, decimation, and artist reuse. Every render re-culls
-against the current view, so artists are always consistent with the axes
-limits regardless of how the view was changed.
+Every render asks each plot's source for the view: every point in it when
+there are few enough to draw, else the least and the greatest of bins of
+at most half a pixel column of points, filled between from each bin's
+first point to the next's. A column can show no more than its extremes, so
+the fill is what every point would have drawn, at the cost of the columns
+rather than the points.
+Artists are reused, and every render re-asks against the current view, so
+they are always consistent with the axes limits however the view changed.
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 
 import numpy as np
+from matplotlib import colormaps
 from matplotlib.axes import Axes
 from matplotlib.collections import LineCollection
 from matplotlib.colors import to_rgba
 
+from .AutoColor import autocolor
+from .AutoColor import pooled_view_spans
 from .Plot2DOverlay import Overlay
 
 
@@ -34,24 +43,11 @@ AUTO_FILL = 0.576       # fraction of the inter-point spacing a marker occupies
 AUTO_AREA_FLOOR = 0.6   # about a one-pixel dot at 100 dpi; dense views hold this
 AUTO_SIZE_MAX = 144.0   # 12 point diameter
 
-# The display budget is shared across the plots that are visible, not granted
-# to each of them. One axes has one set of pixels however many captures are
-# loaded into it, and a per-plot cap multiplies the drawn point count by the
-# number of files.
-#
-# This number and the floor under it are both guesses. A scatter of dense data
-# is a density, and a density is not reproduced by any fixed number of points:
-# drawing sixteen per pixel column still differs from drawing everything over
-# ninety five percent of the lit pixels, and there is no count at which that
-# converges. What can be drawn exactly is the envelope, two per column being
-# what a column can hold, and until the renderer draws that these stay
-# guesses and are left where they were rather than traded for other guesses.
+# The points a view may draw as points is shared across the plots that are
+# visible, not granted to each of them: one axes has one set of pixels however
+# many captures are loaded into it. A plot with more than its share in the
+# view is drawn as its extremes.
 MIN_DISPLAY_POINTS = 2_000
-
-# How many points past the budget the coarse stride keeps before the y cull
-# runs. The stride is a view, so what it skips costs nothing; the surplus is
-# what leaves enough survivors after a y zoom has thrown most of them away.
-Y_CULL_OVERSAMPLE = 4
 
 # A frame drawn while the mouse is still moving is replaced before anyone
 # reads it, so it is drawn from fewer points. The figure itself costs about as
@@ -60,6 +56,9 @@ Y_CULL_OVERSAMPLE = 4
 # letting frames queue behind it.
 INTERACTIVE_DIVISOR = 8
 INTERACTIVE_DISPLAY_POINTS = 5_000
+
+# where on its colormap a coloured plot drawn as extremes takes its one colour
+BAND_COLOR_AT = 0.5
 
 
 def auto_point_size(ax, drawn_count: int) -> float:
@@ -75,12 +74,53 @@ def auto_point_size(ax, drawn_count: int) -> float:
     return float(min(diameter_pt * diameter_pt, AUTO_SIZE_MAX))
 
 
+@dataclass
+class Points:
+    """A plot's points in the view, as drawn."""
+
+    x: np.ndarray
+    y: np.ndarray
+    color: np.ndarray | None
+    # which of them are inside the view, margin excluded, for the colours
+    in_view: np.ndarray
+
+
+@dataclass
+class Strokes:
+    """A plot's bins in the view, as drawn."""
+
+    x: np.ndarray
+    low: np.ndarray
+    high: np.ndarray
+
+
+def band_color(plot: Overlay) -> tuple[float, float, float, float]:
+    """The one colour a plot drawn as its extremes takes."""
+    if plot.color is not None:
+        return to_rgba(plot.color)
+    if plot.source.colored:
+        return colormaps[plot.cmap](BAND_COLOR_AT)
+    return to_rgba("white")
+
+
+def joined(low: np.ndarray, high: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Bins stretched to meet their neighbours: a line through the points
+    crosses every gap between one bin's range and the next's."""
+    low, high = low.copy(), high.copy()
+    rising = low[1:] > high[:-1]
+    falling = high[1:] < low[:-1]
+    low[1:] = np.where(rising, high[:-1], low[1:])
+    high[1:] = np.where(falling, low[:-1], high[1:])
+    return low, high
+
+
 class Matplotlib2DRenderer:
     def __init__(self):
         self.plot_initialized = False
         self.last_drawn_points = 0
         self._batch_solid_line_collection: LineCollection | None = None
         self._batch_colored_line_collection: LineCollection | None = None
+        self._band_artists: list = []
 
     def render(
         self,
@@ -90,7 +130,8 @@ class Matplotlib2DRenderer:
         view_xlim: tuple[float, float],
         view_ylim: tuple[float, float],
         color_ranges: Sequence[tuple[float, float] | None],
-        color_overrides: Sequence[np.ndarray | None],
+        palette_view: bool,
+        autocolor_enabled: bool,
         cull_margin: float,
         max_display_points: int,
         max_line_segments: int,
@@ -99,10 +140,9 @@ class Matplotlib2DRenderer:
         """
         Render all plots at the given view.
 
-        color_ranges[i] is the (vmin, vmax) normalization range for plot i,
-        or None for plots without color data. color_overrides[i] is a
-        full-length [0, 1] color array that replaces the plot's own color
-        data for this render, or None to use it unchanged.
+        color_ranges[i] is plot i's colour range over its whole source, or
+        None where that is not known; a plot without one is coloured over
+        the values in view, as every plot is with palette_view set.
         """
         if not self.plot_initialized:
             self._initialize_axes(ax)
@@ -112,8 +152,65 @@ class Matplotlib2DRenderer:
         y_pad = (view_ylim[1] - view_ylim[0]) * cull_margin
         cx0, cx1 = view_xlim[0] - x_pad, view_xlim[1] + x_pad
         cy0, cy1 = view_ylim[0] - y_pad, view_ylim[1] + y_pad
+        columns = max(int(round(ax.get_window_extent().width * (1.0 + 2.0 * cull_margin))), 1)
 
         rasterized = not disable_antialiasing
+
+        drawn_plots = sum(1 for plot in plots if plot.visible and plot.count > 0)
+        budget = (
+            max(MIN_DISPLAY_POINTS, max_display_points // drawn_plots)
+            if drawn_plots
+            else max_display_points
+        )
+
+        # first pass: what each visible plot shows. The auto marker size
+        # comes from the x extent of the view alone, counted without the
+        # cull margin: margin points would inflate the count by up to half
+        # again and shrink toward a data edge, making the size drift while
+        # panning; y-culled counts make the diameter jump when a channel
+        # leaves the y window, instead of scaling with zoom.
+        shown: list[Points | Strokes | None] = []
+        max_x_count = 0
+        for plot in plots:
+            if not plot.visible or plot.count == 0:
+                shown.append(None)
+                continue
+            source = plot.source
+            x0, x1 = cx0 - plot.offset_x, cx1 - plot.offset_x
+            max_x_count = max(max_x_count, plot.count_in(view_xlim))
+            n = source.count_between(x0, x1)
+            if n == 0:
+                shown.append(None)
+            elif n <= budget or not source.ascending:
+                taken = source.records(x0, x1)
+                x = taken.x + plot.offset_x
+                y = plot.display_y(taken.y)
+                keep = np.flatnonzero((y >= cy0) & (y <= cy1))
+                if keep.size > budget:
+                    # a cloud that is not a function of x has no extremes
+                    # along it to draw instead; it is strided, as it is
+                    keep = keep[:: -(-keep.size // budget)]
+                if keep.size == 0:
+                    shown.append(None)
+                    continue
+                x, y = x[keep], y[keep]
+                color = None if taken.color is None else taken.color[keep]
+                in_view = (x >= view_xlim[0]) & (x <= view_xlim[1]) & (y >= view_ylim[0]) & (y <= view_ylim[1])
+                shown.append(Points(x=x, y=y, color=color, in_view=in_view))
+            else:
+                band = source.band(x0, x1, columns)
+                low, high = plot.display_span(band.low, band.high)
+                if plot.draw_lines:
+                    low, high = joined(low, high)
+                shown.append(Strokes(x=band.x + plot.offset_x, low=low, high=high))
+
+        ranges = pooled_view_spans(plots, shown, color_ranges, palette_view)
+
+        self.last_drawn_points = 0
+        shared_size = auto_point_size(ax, max_x_count)
+        for plot in plots:
+            if plot.auto_size:
+                plot.size = shared_size
 
         solid_segments: list[np.ndarray] = []
         solid_colors: list[np.ndarray] = []
@@ -123,108 +220,34 @@ class Matplotlib2DRenderer:
         colored_arrays: list[np.ndarray] = []
         colored_cmap: str | None = None
 
-        # first pass: cull and subsample every visible plot. The auto marker
-        # size comes from the x extent of the view alone, counted before the
-        # display subsample and without the cull margin: margin points would
-        # inflate the count by up to half again and shrink toward a data
-        # edge, making the size drift while panning; y-culled or subsampled
-        # counts make the diameter jump when a channel leaves the y window or
-        # a subsample threshold is crossed, instead of scaling with zoom.
-        prepared: list[
-            tuple[
-                Overlay,
-                tuple[float, float] | None,
-                np.ndarray | None,
-                np.ndarray,
-                np.ndarray,
-            ]
-            | None
-        ] = []
-        max_x_count = 0
-        # the budget is known before the cull, so the cull can stride down to
-        # it rather than gathering everything and then throwing most of it away
-        drawn_plots = sum(
-            1 for plot in plots if plot.visible and len(plot.points) > 0
-        )
-        budget = (
-            max(MIN_DISPLAY_POINTS, max_display_points // drawn_plots)
-            if drawn_plots
-            else max_display_points
-        )
-        for plot, color_range, color_override in zip(
-            plots, color_ranges, color_overrides
-        ):
-            if not plot.visible or len(plot.points) == 0:
+        bands: list[tuple[Overlay, Strokes]] = []
+
+        for plot, view, color_range in zip(plots, shown, ranges):
+            if not isinstance(view, Points):
                 if plot.scatter_artist is not None:
                     plot.scatter_artist.set_visible(False)
-                prepared.append(None)
+            if view is None:
+                continue
+            if isinstance(view, Strokes):
+                self.last_drawn_points += view.x.size
+                bands.append((plot, view))
                 continue
 
-            points = plot.display_points()
-
-            x = points[:, 0]
-            y = points[:, 1]
-            if plot.x_ascending:
-                # Two searches locate the span, then it is strided down to a
-                # few times the budget before anything is compared or copied.
-                # Nothing here is ever proportional to the record: a pan with
-                # the whole capture in view costs the same as one zoomed in,
-                # and loading more files does not make panning slower. The
-                # indices stay absolute so the colour arrays below index the
-                # same way they always did.
-                lo = int(np.searchsorted(x, cx0, side="left"))
-                hi = int(np.searchsorted(x, cx1, side="right"))
-                max_x_count = max(
-                    max_x_count,
-                    int(np.searchsorted(x, view_xlim[1], side="right"))
-                    - int(np.searchsorted(x, view_xlim[0], side="left")),
-                )
-                coarse = max(1, (hi - lo) // (budget * Y_CULL_OVERSAMPLE))
-                span = y[lo:hi:coarse]
-                idx = lo + coarse * np.flatnonzero(
-                    (span >= cy0) & (span <= cy1)
-                )
-            else:
-                mask_x = (x >= cx0) & (x <= cx1)
-                max_x_count = max(
-                    max_x_count,
-                    int(((x >= view_xlim[0]) & (x <= view_xlim[1])).sum()),
-                )
-                mask = mask_x & (y >= cy0) & (y <= cy1)
-                idx = np.flatnonzero(mask)
-
-            if idx.size == 0:
-                if plot.scatter_artist is not None:
-                    plot.scatter_artist.set_visible(False)
-                prepared.append(None)
-                continue
-
-            if idx.size > budget:
-                idx = idx[:: -(-idx.size // budget)]  # ceil div
-
-            prepared.append((plot, color_range, color_override, points, idx))
-
-        self.last_drawn_points = sum(
-            entry[4].size for entry in prepared if entry is not None
-        )
-        shared_size = auto_point_size(ax, max_x_count)
-        for plot in plots:
-            if plot.auto_size:
-                plot.size = shared_size
-
-        for entry in prepared:
-            if entry is None:
-                continue
-            plot, color_range, color_override, points, idx = entry
-
-            display_points = points[idx]
-
-            if color_override is not None:
-                display_colors = color_override[idx]
-            elif plot.color_data is not None and color_range is not None:
-                display_colors = plot.normalized_colors(idx, *color_range)
-            else:
+            self.last_drawn_points += view.x.size
+            display_points = np.column_stack((view.x, view.y))
+            if view.color is None or color_range is None:
                 display_colors = None
+            else:
+                display_colors = (
+                    autocolor(view.y, view.color, view.in_view) if autocolor_enabled else None
+                )
+                if display_colors is None:
+                    span = color_range[1] - color_range[0]
+                    display_colors = (
+                        (view.color - color_range[0]) / span
+                        if span > 0.0
+                        else np.full(view.color.size, 0.5, dtype=np.float32)
+                    )
 
             self._update_scatter(ax, plot, display_points, display_colors, rasterized)
 
@@ -264,6 +287,7 @@ class Matplotlib2DRenderer:
             colored_cmap,
             rasterized,
         )
+        self._rebuild_bands(ax, bands, rasterized)
 
         ax.set_xlim(*view_xlim)
         ax.set_ylim(*view_ylim)
@@ -357,8 +381,41 @@ class Matplotlib2DRenderer:
             ax.add_collection(lc, autolim=False)
             self._batch_colored_line_collection = lc
 
+    def _rebuild_bands(
+        self,
+        ax: Axes,
+        bands: list[tuple[Overlay, Strokes]],
+        rasterized: bool,
+    ) -> None:
+        """Every plot drawn as its extremes, each bin filled from its own x
+        to the next bin's, so the bins tile the axis whatever pixels they
+        land on. The fill's edge is a pixel wide: a bin whose extremes are
+        one value has nothing to fill and is drawn by its edge."""
+        for artist in self._band_artists:
+            artist.remove()
+        self._band_artists = []
+        pixel_width = 72.0 / ax.get_figure().dpi
+        for plot, view in bands:
+            last = view.x[-1] + (view.x[-1] - view.x[-2] if view.x.size > 1 else 0.0)
+            x = np.append(view.x, last)
+            color = band_color(plot) if plot.line_color is None else to_rgba(plot.line_color)
+            self._band_artists.append(
+                ax.fill_between(
+                    x,
+                    np.append(view.low, view.low[-1]),
+                    np.append(view.high, view.high[-1]),
+                    step="post",
+                    facecolor=color,
+                    edgecolor=color,
+                    linewidth=max(plot.line_width, pixel_width) if plot.draw_lines else pixel_width,
+                    alpha=0.8,
+                    rasterized=rasterized,
+                )
+            )
+
     def _initialize_axes(self, ax: Axes) -> None:
         ax.set_facecolor("black")
         ax.tick_params(colors="white")
         self._batch_solid_line_collection = None
         self._batch_colored_line_collection = None
+        self._band_artists = []

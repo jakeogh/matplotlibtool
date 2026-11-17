@@ -12,12 +12,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-import numpy as np
 from PyQt6.QtCore import QObject
 from PyQt6.QtCore import pyqtSignal
 
 from .CoordinateTransformEngine import CoordinateTransformEngine
 from .Plot2DOverlay import Overlay
+from .PlotSource import Source
 
 # UI property name -> (Overlay attribute, coercion)
 _PROPERTY_MAP: dict[str, tuple[str, Any]] = {
@@ -91,7 +91,7 @@ class PlotManager:
         for i, plot in enumerate(self.plots):
             custom_name = self.plot_names.get(i)
             base = custom_name if custom_name else f"Plot {i + 1}"
-            self._cached_labels.append(f"{base} ({len(plot.points):,} pts)")
+            self._cached_labels.append(f"{base} ({plot.count:,} pts)")
 
     def get_plot_count(self) -> int:
         return len(self.plots)
@@ -164,8 +164,7 @@ class PlotManager:
 
     def add_plot(
         self,
-        points: np.ndarray,
-        color_data: np.ndarray | None,
+        source: Source,
         colormap: str,
         point_size: float,
         draw_lines: bool,
@@ -183,9 +182,8 @@ class PlotManager:
         viewport_amplitude: float = 0.12,
     ) -> int:
         plot = Overlay(
-            points=points,
+            source=source,
             cmap=colormap,
-            color_data=color_data,
             draw_lines=draw_lines,
             size=point_size,
             line_color=line_color,
@@ -222,19 +220,19 @@ class PlotManager:
     ) -> tuple[float, float] | None:
         return self.plot_global_color_ranges.get(plot_index)
 
-    def replace_plot_points(
+    def replace_plot_source(
         self,
         plot_index: int,
-        points: np.ndarray,
-        color_data: np.ndarray | None,
+        source: Source,
         color_range: tuple[float, float] | None,
     ) -> None:
-        """Swap a plot's data in place; styling, visibility and view are untouched."""
-        plot = self.plots[plot_index]
-        plot.points = points
-        plot.color_data = color_data
+        """Swap a plot's source in place; styling, visibility and view are
+        untouched. A colour range that is not known is taken from the view."""
+        self.plots[plot_index].source = source
         if color_range is not None:
             self.plot_global_color_ranges[plot_index] = color_range
+        else:
+            self.plot_global_color_ranges.pop(plot_index, None)
         self._invalidate_label_cache()
 
     def set_plot_name(self, plot_index: int, name: str) -> bool:
@@ -263,12 +261,12 @@ class PlotManager:
 
         return PlotInfo(
             index=plot_index,
-            name=f"{base} ({len(plot.points):,} pts)",
-            point_count=len(plot.points),
+            name=f"{base} ({plot.count:,} pts)",
+            point_count=plot.count,
             visible=plot.visible,
             size=plot.size,
             colormap=plot.cmap,
-            has_color_data=plot.color_data is not None,
+            has_color_data=plot.source.colored,
             offset_x=plot.offset_x,
             offset_y=plot.offset_y,
             draw_lines=plot.draw_lines,
@@ -287,7 +285,7 @@ class PlotManager:
                 plot = self.plots[plot_index]
                 custom_name = self.plot_names.get(plot_index)
                 base = custom_name if custom_name else f"Array {plot_index + 1}"
-                labels.append(f"{base} ({len(plot.points):,} pts)")
+                labels.append(f"{base} ({plot.count:,} pts)")
         return labels
 
     def set_plot_visibility(self, plot_index: int, visible: bool) -> bool:
@@ -363,7 +361,7 @@ class PlotManager:
                 "offset_x": plot.offset_x,
                 "offset_y": plot.offset_y,
                 "visible": plot.visible,
-                "has_color_data": plot.color_data is not None,
+                "has_color_data": plot.source.colored,
                 "line_color": plot.line_color,
                 "line_width": plot.line_width,
             }

@@ -291,11 +291,29 @@ class PointHoverManager:
         nearest_dist = float("inf")
         nearest_plot = None
 
+        # only a point within snap distance is ever shown, so only the x
+        # either side that reaches is read: every point there when few
+        # enough, else the extremes of the bins it holds
+        reach = self.snap_distance / x_scale
+        near = (mouse_x - reach, mouse_x + reach)
         for plot in visible_plots:
-            if len(plot.points) == 0:
+            if plot.count == 0 or plot.count_in(near) == 0:
                 continue
 
-            offset_points = plot.display_points()
+            source = plot.source
+            taken = plot.records_in(
+                near, self.viewer.max_display_points if source.ascending else plot.count
+            )
+            if taken is not None:
+                offset_points = np.column_stack((taken.x, plot.display_y(taken.y)))
+            else:
+                columns = max(int(2.0 * self.snap_distance), 1)
+                band = source.band(near[0] - plot.offset_x, near[1] - plot.offset_x, columns)
+                low, high = plot.display_span(band.low, band.high)
+                x = band.x + plot.offset_x
+                offset_points = np.concatenate(
+                    (np.column_stack((x, low)), np.column_stack((x, high)))
+                )
 
             mask = (
                 (offset_points[:, 0] >= cull_xlim[0])

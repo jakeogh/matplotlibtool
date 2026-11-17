@@ -7,14 +7,14 @@ Plot Group Context Manager - REFACTORED
 Manages a group of plots with shared global color mapping.
 Accumulates plots during the context, then applies global color range on exit.
 
-REFACTORED: Now uses PlotDataProcessor to eliminate code duplication with Plot2D.add_plot()
+Uses PlotDataProcessor, as Plot2D.add_plot() does.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import numpy as np
+from .PlotSource import as_table
 
 if TYPE_CHECKING:
     from .Plot2D import Plot2D
@@ -144,7 +144,7 @@ class PlotGroupContext:
         Uses PlotDataProcessor for shared validation and transformation logic.
 
         Args:
-            data: Structured array
+            data: Structured array or table
             x_field: Name of field to use for X axis
             y_field: Name of field to use for Y axis
             normalize: If True, normalize points to unit square
@@ -166,8 +166,9 @@ class PlotGroupContext:
             color_field = self.color_field
 
         # Process using shared processor (handles defaults, validation, transformation)
-        processed = self.viewer.plot_processor.process_structured_array(
-            data,
+        table = as_table(data)
+        processed = self.viewer.plot_processor.process_table(
+            table,
             x_field=x_field,
             y_field=y_field,
             color_field=color_field,
@@ -186,7 +187,7 @@ class PlotGroupContext:
         )
 
         # Validate fields match within group
-        current_fields = set(data.dtype.names)
+        current_fields = set(table.fields)
         if self._group_fields is None:
             # First plot in group - establish the field set
             self._group_fields = current_fields
@@ -204,12 +205,10 @@ class PlotGroupContext:
                 error_msg += f"  Got fields: {sorted(current_fields)}"
                 raise ValueError(error_msg)
 
-        # Extract color data and update global range
-        color_data = data[color_field].astype(np.float32)
-
-        if len(color_data) > 0:
-            local_min = float(color_data.min())
-            local_max = float(color_data.max())
+        # update the global range, from what the source knows of its colours
+        span = processed.source.color_span()
+        if span is not None:
+            local_min, local_max = span
 
             if self.global_color_min is None:
                 self.global_color_min = local_min
@@ -231,7 +230,7 @@ class PlotGroupContext:
         Returns:
             The plot index that was added
         """
-        data = processed.original_data
+        data = processed.table
         x_field = processed.x_field
         y_field = processed.y_field
         color_field = processed.color_field
@@ -263,8 +262,7 @@ class PlotGroupContext:
 
         # Add plot to PlotManager with global color range
         plot_index = self.viewer.plot_manager.add_plot(
-            points=processed.points,
-            color_data=processed.color_data,
+            source=processed.source,
             colormap=processed.colormap,
             point_size=processed.point_size,
             draw_lines=processed.draw_lines,
@@ -293,7 +291,7 @@ class PlotGroupContext:
     def create_auto_group_for_array(
         viewer: Plot2D,
         array_index: int,
-        data: np.ndarray,
+        color_span: tuple[float, float] | None,
         x_field: str,
         y_field: str,
         color_field: str | None,
@@ -308,7 +306,7 @@ class PlotGroupContext:
         Args:
             viewer: Reference to the Plot2D viewer
             array_index: Index of the registered array
-            data: The structured numpy array
+            color_span: The colour field's extremes, when known
             x_field: X-axis field name
             y_field: Initially plotted Y field
             color_field: Field used for coloring (or None)
@@ -317,16 +315,6 @@ class PlotGroupContext:
         Returns:
             group_id of the created group
         """
-        # Calculate global color range if we have a color field
-        global_color_min = None
-        global_color_max = None
-
-        if color_field is not None and color_field in data.dtype.names:
-            color_data = data[color_field].astype(np.float32)
-            if len(color_data) > 0:
-                global_color_min = float(color_data.min())
-                global_color_max = float(color_data.max())
-
         # Get array name from properties or generate one
         array_name = properties.get("plot_name")
         if not array_name:
@@ -343,11 +331,7 @@ class PlotGroupContext:
             group_name=array_name,
             plot_indices=[plot_index],
             color_field=color_field if color_field else y_field,
-            color_range=(
-                (global_color_min, global_color_max)
-                if global_color_min is not None
-                else (0.0, 1.0)
-            ),
+            color_range=color_span if color_span is not None else (0.0, 1.0),
         )
 
         return group_id

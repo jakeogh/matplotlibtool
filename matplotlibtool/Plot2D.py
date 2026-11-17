@@ -46,8 +46,6 @@ from PyQt6.QtWidgets import QVBoxLayout
 from PyQt6.QtWidgets import QWidget
 
 from .ArrayFieldIntegration import ArrayFieldIntegration
-from .AutoColor import autocolor_overrides
-from .AutoColor import view_color_ranges
 from .AxisSecondaryIntegration import AxisSecondaryIntegration
 from .BusyIndicatorManager import BusyIndicatorManager
 from .NavigationCache import NavigationCache
@@ -62,6 +60,8 @@ from .KeyboardInputManager import KeyboardInputManager
 from .MouseMode import MouseMode
 from .Plot2DInteractions import Plot2DInteractions
 from .Plot2DOverlay import Overlay
+from .PlotSource import Table
+from .PlotSource import as_table
 from .Plot2DRenderer import INTERACTIVE_DISPLAY_POINTS
 from .Plot2DRenderer import INTERACTIVE_DIVISOR
 from .Plot2DRenderer import Matplotlib2DRenderer
@@ -93,7 +93,7 @@ class Preload:
         self.key = key
         self.target = target
         self.started = perf_counter()
-        self.result: tuple[tuple[int, int], np.ndarray] | None = None
+        self.result: tuple[tuple[int, int], Table] | None = None
         self.thread = threading.Thread(
             target=self._run, args=(parse,), name="nav-preload", daemon=True
         )
@@ -218,14 +218,10 @@ class Plot2D(QMainWindow):
         # notified with the new path after every navigation swap; a client
         # hangs its sidecar recalibration here
         self.source_file_changed: Callable[[Path], None] | None = None
-        # parses a navigated file exactly as the current arrays were built.
+        # opens a navigated file exactly as the current tables were built.
         # The registered Add loader is a fallback only: when it parses to a
         # different dtype than the arrays on screen, the swap must use this.
-        self.navigation_loader: Callable[[Path], "np.ndarray"] | None = None
-        # why a capture is not to be loaded at all, or None: consulted before
-        # previous/next parses one and before the next is decoded ahead
-        self.navigation_refusal: Callable[[Path], str | None] | None = None
-        self._preload_refused: Path | None = None
+        self.navigation_loader: Callable[[Path], object] | None = None
         # inotify-backed watch on the source file's folder keeps the
         # previous/next buttons truthful without polling
         self._folder_watcher = QFileSystemWatcher(self)
@@ -504,17 +500,15 @@ class Plot2D(QMainWindow):
         ymax = -math.inf
 
         for plot in self.plot_manager.get_visible_plots():
-            if len(plot.points) == 0 or plot.viewport_track:
+            if plot.count == 0 or plot.viewport_track:
                 # a tracking overlay is placed from the ylim, so fitting the
                 # ylim to it would chase its own tail
                 continue
-            points = plot.display_points()
-            mask = (points[:, 0] >= xlim[0]) & (points[:, 0] <= xlim[1])
-            if not mask.any():
+            span = plot.y_between(xlim)
+            if span is None:
                 continue
-            y = points[mask, 1]
-            ymin = min(ymin, float(y.min()))
-            ymax = max(ymax, float(y.max()))
+            ymin = min(ymin, span[0])
+            ymax = max(ymax, span[1])
 
         if not math.isfinite(ymin):
             return None
@@ -591,13 +585,13 @@ class Plot2D(QMainWindow):
         y_pad_ratio: float = Y_PAD_RATIO,
     ) -> ViewBounds:
         """Fit view to all visible data; unit square when there is none."""
-        all_points = [
-            plot.display_points()
+        extents = [
+            plot.display_extent()
             for plot in self.plot_manager.get_visible_plots()
             if not plot.viewport_track
         ]
 
-        bounds = ViewManager.compute_fit_bounds(all_points, x_pad_ratio, y_pad_ratio)
+        bounds = ViewManager.compute_fit_bounds(extents, x_pad_ratio, y_pad_ratio)
         if bounds is None:
             return self.set_view((0.0, 1.0), (0.0, 1.0))
         return self.set_view(bounds.xlim, bounds.ylim)
@@ -647,7 +641,8 @@ class Plot2D(QMainWindow):
         viewport_amplitude: float = 0.12,
     ) -> dict:
         """
-        Add a single plot from a structured array field.
+        Add a single plot of one field of a table: a structured array, or
+        a table read as it is drawn.
 
         viewport_track places the plot against the view rather than at its own
         values: every tracking plot gets its own lane in a stack centred on
@@ -667,8 +662,9 @@ class Plot2D(QMainWindow):
         """
         if viewport_track:
             line_width = self.gpio_line_width
-        processed = self.plot_processor.process_structured_array(
-            data,
+        table = as_table(data)
+        processed = self.plot_processor.process_table(
+            table,
             x_field=x_field,
             y_field=y_field,
             color_field=color_field,
@@ -687,14 +683,11 @@ class Plot2D(QMainWindow):
             plot_name=plot_name,
         )
 
-        global_color_min = None
-        global_color_max = None
-        if processed.color_data is not None and len(processed.color_data) > 0:
-            global_color_min = float(processed.color_data.min())
-            global_color_max = float(processed.color_data.max())
+        color_span = processed.source.color_span()
+        global_color_min, global_color_max = (None, None) if color_span is None else color_span
 
         array_index = self.array_field_integration.register_array(
-            data=data,
+            data=table,
             x_field=x_field,
             y_field=y_field,
             array_name=processed.plot_name,
@@ -718,8 +711,7 @@ class Plot2D(QMainWindow):
         generated_name = y_field if plot_name is None else plot_name
 
         added_index = self.plot_manager.add_plot(
-            points=processed.points,
-            color_data=processed.color_data,
+            source=processed.source,
             colormap=processed.colormap,
             point_size=processed.point_size,
             draw_lines=processed.draw_lines,
@@ -753,7 +745,7 @@ class Plot2D(QMainWindow):
         group_id = PlotGroupContext.create_auto_group_for_array(
             viewer=self,
             array_index=array_index,
-            data=data,
+            color_span=color_span,
             x_field=x_field,
             y_field=y_field,
             color_field=color_field,
@@ -806,7 +798,8 @@ class Plot2D(QMainWindow):
         self, data, *, array_index: int = 0, recompute_pixel_dc: bool = True
     ) -> None:
         """
-        Swap the array behind every plot of this array for a new capture.
+        Swap the table behind every plot of this array for a new capture:
+        a structured array, or a table read as it is drawn.
 
         The view, selection, visibility, and styling all survive the swap.
         A caller replacing several arrays with one capture passes
@@ -864,20 +857,13 @@ class Plot2D(QMainWindow):
 
         color_ranges: list[tuple[float, float] | None] = []
         for i, plot in enumerate(all_plots):
-            if plot.color_data is None or len(plot.color_data) == 0:
+            if not plot.source.colored:
                 color_ranges.append(None)
             else:
                 global_range = self.plot_manager.get_plot_global_color_range(i)
                 color_ranges.append(
-                    global_range if global_range is not None else plot.color_range()
+                    global_range if global_range is not None else plot.source.color_span()
                 )
-        if self.palette_view_enabled:
-            color_ranges = view_color_ranges(
-                all_plots,
-                color_ranges,
-                xlim=current_bounds.xlim,
-                ylim=current_bounds.ylim,
-            )
 
         self.renderer.render(
             self.ax,
@@ -885,12 +871,8 @@ class Plot2D(QMainWindow):
             view_xlim=current_bounds.xlim,
             view_ylim=current_bounds.ylim,
             color_ranges=color_ranges,
-            color_overrides=autocolor_overrides(
-                all_plots,
-                xlim=current_bounds.xlim,
-                ylim=current_bounds.ylim,
-                enabled=self.autocolor_enabled,
-            ),
+            palette_view=self.palette_view_enabled,
+            autocolor_enabled=self.autocolor_enabled,
             cull_margin=self.cull_margin,
             max_display_points=(
                 max(
@@ -1164,10 +1146,6 @@ class Plot2D(QMainWindow):
             which = "previous" if step < 0 else "next"
             print(f"[INFO] file navigation: no {which} {self.source_file.suffix} file")
             return
-        refused = None if self.navigation_refusal is None else self.navigation_refusal(target)
-        if refused is not None:
-            print(f"[INFO] file navigation: not loading {target.name}: {refused}")
-            return
         # the decode can take seconds; the badge and wait cursor paint
         # before it blocks, so the button press visibly took
         t_start = perf_counter()
@@ -1216,7 +1194,7 @@ class Plot2D(QMainWindow):
                 best = sibling
         return best
 
-    def _navigation_parse(self, path: Path) -> tuple[tuple[int, int], "np.ndarray"]:
+    def _navigation_parse(self, path: Path) -> tuple[tuple[int, int], Table]:
         """Parse a capture with the stat it had going in.
 
         Runs on the preload worker as well as the GUI thread, so a
@@ -1225,11 +1203,11 @@ class Plot2D(QMainWindow):
         """
         stat = NavigationCache.stat_key(path)
         if self.navigation_loader is not None:
-            return stat, self.navigation_loader(path)
-        return stat, self.file_loader_registry.load_files([str(path)])[0]
+            return stat, as_table(self.navigation_loader(path))
+        return stat, as_table(self.file_loader_registry.load_files([str(path)])[0])
 
-    def _navigation_data(self, target: Path) -> "np.ndarray":
-        """The target's array from cache, a finished preload, or a parse."""
+    def _navigation_data(self, target: Path) -> Table:
+        """The target's table from cache, a finished preload, or a parse."""
         cached = self.navigation_cache.get(target)
         if cached is not None:
             print(
@@ -1277,13 +1255,6 @@ class Plot2D(QMainWindow):
         if self._preload is not None and self._preload.key == key:
             return
         if self.navigation_cache.get(target) is not None:
-            return
-        if self._preload_refused == key:
-            return
-        refused = None if self.navigation_refusal is None else self.navigation_refusal(target)
-        if refused is not None:
-            self._preload_refused = key
-            print(f"[nav] no preload of {target.name}: {refused}", file=sys.stderr)
             return
         print(f"[nav] preload start {target.name}", file=sys.stderr)
         self._preload = Preload.start(key, target, self._navigation_parse)

@@ -15,11 +15,10 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
-import numpy as np
-
 from .ArrayFieldManager import ArrayFieldManager
 from .ArrayFieldPanel import ArrayFieldPanel
-from .CoordinateTransformEngine import TransformParams
+from .PlotSource import Table
+from .PlotSource import as_table
 
 if TYPE_CHECKING:
     from .Plot2D import Plot2D
@@ -40,7 +39,7 @@ class ArrayFieldIntegration:
 
     def register_array(
         self,
-        data: np.ndarray,
+        data: Table,
         x_field: str,
         y_field: str,
         array_name: str | None = None,
@@ -151,53 +150,49 @@ class ArrayFieldIntegration:
     def replace_array_data(
         self,
         array_index: int,
-        data: np.ndarray,
+        data,
         *,
         recompute_pixel_dc: bool = True,
     ) -> None:
         """
-        Swap the array behind every plot of this array for a new capture.
+        Swap the table behind every plot of this array for a new capture.
 
-        Every mapped field plot is rebuilt from the new data through the
+        Every mapped field plot is rebuilt from the new table through the
         transform the array was registered with; nothing else changes, so the
         view, selection, visibility, and styling all survive the swap. The DC
         overlays recompute against the new data when showing.
         """
+        table = as_table(data)
         manager = self.array_field_manager
         info = manager.get_array_info(array_index)
-        old_names = set(info["data"].dtype.names)
-        new_names = set(data.dtype.names or ())
+        old_names = set(info["data"].fields)
+        new_names = set(table.fields)
         if new_names != old_names:
             raise ValueError(
                 f"array {array_index}: replacement fields {sorted(new_names)} "
                 f"do not match {sorted(old_names)}"
             )
 
-        info["data"] = data
-        x = data[info["x_field"]].astype(np.float64)
-        transform_params = info["properties"]["transform_params"]
-        color_field = info["properties"].get("color_field")
-        color_data = None
-        color_range = None
-        if color_field is not None:
-            color_data = data[color_field].astype(np.float32)
-            if len(color_data):
-                color_range = (float(color_data.min()), float(color_data.max()))
-                info["properties"]["global_color_min"] = color_range[0]
-                info["properties"]["global_color_max"] = color_range[1]
-
+        info["data"] = table
+        properties = info["properties"]
+        color_field = properties.get("color_field")
         for field, plot_index in manager.array_fields[array_index].items():
             if plot_index is None:
                 continue
-            points_xy = np.column_stack((x, data[field].astype(np.float64)))
-            self.viewer.plot_manager.replace_plot_points(
-                plot_index,
-                self.viewer.transform_engine.apply_transform(
-                    points_xy, transform_params
-                ),
-                color_data,
-                color_range,
+            source = table.source(
+                x_field=info["x_field"],
+                y_field=field,
+                color_field=color_field,
+                x_scale=info["x_scale"],
+                transform=properties["transform_params"],
             )
+            color_range = source.color_span()
+            if color_range is not None:
+                properties["global_color_min"], properties["global_color_max"] = color_range
+            else:
+                properties.pop("global_color_min", None)
+                properties.pop("global_color_max", None)
+            self.viewer.plot_manager.replace_plot_source(plot_index, source, color_range)
 
         self.viewer.control_bar_integration.refresh_plot_selector()
         if not (recompute_pixel_dc and self.viewer.event_handlers.recompute_pixel_dc()):
@@ -227,49 +222,32 @@ class ArrayFieldIntegration:
 
     def _create_field_plot(self, array_index: int, field_name: str) -> None:
         info = self.array_field_manager.get_array_info(array_index)
-        data = info["data"]
-        x_field = info["x_field"]
+        table = info["data"]
         properties = info["properties"]
 
-        points_xy = np.column_stack(
-            (
-                data[x_field].astype(np.float64),
-                data[field_name].astype(np.float64),
-            )
+        transform_params = self.viewer.plot_processor.transform_for(
+            table,
+            x_field=info["x_field"],
+            y_field=field_name,
+            x_scale=info["x_scale"],
+            normalize=properties.get("normalize", False),
+            center=properties.get("center", False),
+            transform_params=properties.get("transform_params"),
         )
-
-        transform_params = properties.get("transform_params")
-        if transform_params:
-            transformed_points = self.viewer.transform_engine.apply_transform(
-                points_xy, TransformParams.from_dict(transform_params)
-            )
-        elif properties.get("normalize", False):
-            transformed_points, params = self.viewer.transform_engine.normalize_points(
-                points_xy
-            )
-            transform_params = params.to_dict()
-        elif properties.get("center", False):
-            transformed_points, params = self.viewer.transform_engine.center_points(
-                points_xy
-            )
-            transform_params = params.to_dict()
-        else:
-            transformed_points, params = self.viewer.transform_engine.raw_points(
-                points_xy
-            )
-            transform_params = params.to_dict()
 
         color_field = properties.get("color_field")
-        color_data = (
-            data[color_field].astype(np.float32)
-            if color_field is not None and color_field in data.dtype.names
-            else None
-        )
+        if color_field is not None and color_field not in table.color_fields:
+            color_field = None
 
         with self.viewer.busy_manager.busy_operation(f"Adding field {field_name}"):
             plot_index = self.viewer.plot_manager.add_plot(
-                points=transformed_points,
-                color_data=color_data,
+                source=table.source(
+                    x_field=info["x_field"],
+                    y_field=field_name,
+                    color_field=color_field,
+                    x_scale=info["x_scale"],
+                    transform=transform_params,
+                ),
                 colormap=properties.get("colormap", self.viewer.default_colormap),
                 point_size=properties.get("point_size", 2.0),
                 draw_lines=properties.get(

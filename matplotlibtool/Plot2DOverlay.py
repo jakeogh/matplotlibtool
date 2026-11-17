@@ -9,6 +9,10 @@ from typing import Any
 
 import numpy as np
 
+from .PlotSource import Records
+from .PlotSource import Source
+from .PlotSource import settle_floor
+
 
 def lane_placement(ylim: tuple[float, float], slot: int, slot_count: int, amplitude: float = 0.12) -> tuple[float, float, float]:
     """Where lane `slot` of `slot_count` sits over a view: its baseline, the
@@ -32,11 +36,10 @@ def lane_placement(ylim: tuple[float, float], slot: int, slot_count: int, amplit
 
 @dataclass
 class Overlay:
-    """Configuration and state for a single plot."""
+    """Configuration and state for a single plot: how its source is drawn."""
 
-    points: np.ndarray
+    source: Source
     cmap: str
-    color_data: np.ndarray | None = None
     draw_lines: bool = False
     size: float = 2.0
     color: str | None = None
@@ -47,6 +50,8 @@ class Overlay:
     line_color: str | None = None  # None = use point colors
     line_width: float = 1.0
     settle_ref: float | None = None  # when set, display y = log10|y - ref|
+    # the least residual a settle view draws, set with settle_ref
+    settle_floor: float = 1.0
     auto_size: bool = True  # size follows how many points are actually drawn
 
     # A tracking overlay is positioned by the view rather than by its own
@@ -62,35 +67,16 @@ class Overlay:
     # where the lane's name label is drawn
     track_label_y: float = field(default=0.0, init=False, repr=False)
 
-    _y_range_cache: tuple[int, tuple[float, float]] | None = field(
-        default=None, init=False, repr=False
-    )
-
     scatter_artist: Any = field(default=None, init=False, repr=False)
 
-    # caches keyed on the identity of color_data
-    _range_cache: tuple[int, tuple[float, float]] | None = field(
-        default=None, init=False, repr=False
-    )
-    _ascending_cache: tuple[int, bool] | None = field(
-        default=None, init=False, repr=False
-    )
-    _settle_cache: tuple[tuple, np.ndarray] | None = field(
-        default=None, init=False, repr=False
-    )
+    @property
+    def count(self) -> int:
+        return self.source.count
 
     def raw_y_range(self) -> tuple[float, float]:
         """Span of this overlay's own y values, before scale and offset."""
-        key = id(self.points)
-        if self._y_range_cache is not None and self._y_range_cache[0] == key:
-            return self._y_range_cache[1]
-        if len(self.points) == 0:
-            span = (0.0, 0.0)
-        else:
-            column = self.points[:, 1]
-            span = (float(column.min()), float(column.max()))
-        self._y_range_cache = (key, span)
-        return span
+        extent = self.source.extent()
+        return (0.0, 0.0) if extent is None else (extent[2], extent[3])
 
     def track_viewport(
         self,
@@ -120,87 +106,69 @@ class Overlay:
         self.y_scale = height / raw_span
         self.offset_y = baseline - raw_low * self.y_scale
 
-    @property
-    def x_ascending(self) -> bool:
-        """Whether the points run in ascending x, decided once and kept.
-
-        Deciding it costs the pass it exists to avoid, so it is remembered
-        against the identity of the points it was decided from. The display
-        transform translates x and scales y and so cannot change the answer;
-        only replacing the points can, and that changes the key.
-
-        Sorted x is what lets a view window be found with two searches instead
-        of a comparison against every point, which is the difference between a
-        zoom that redraws and one that waits.
-        """
-        key = id(self.points)
-        cache = self._ascending_cache
-        if cache is not None and cache[0] == key:
-            return cache[1]
-        x = self.points[:, 0]
-        ascending = bool(x.size < 2 or np.all(np.diff(x) >= 0.0))
-        self._ascending_cache = (key, ascending)
-        return ascending
-
-    def display_points(self) -> np.ndarray:
-        """
-        Points as rendered: y multiplied by y_scale, then offsets. With
-        settle_ref set, y becomes log10 of the residual about that reference,
-        measured in the same scaled-and-offset space the reference was taken in.
-        """
-        pts = self.points
+    def linear_y(self, y: np.ndarray) -> np.ndarray:
+        """y multiplied by y_scale, then offset: before any settle view."""
         if self.y_scale != 1.0:
-            pts = pts * np.array([1.0, self.y_scale], dtype=np.float64)
-        if self.offset_x != 0.0 or self.offset_y != 0.0:
-            pts = pts + np.array([self.offset_x, self.offset_y], dtype=np.float64)
+            y = y * self.y_scale
+        if self.offset_y != 0.0:
+            y = y + self.offset_y
+        return y
+
+    def settle_on(self, reference: float, linear: np.ndarray) -> None:
+        """Draw the residual about `reference`, its floor taken from the
+        linear values the reference was measured over."""
+        self.settle_ref = reference
+        self.settle_floor = settle_floor(np.abs(np.asarray(linear, dtype=np.float64) - reference))
+
+    def display_y(self, y: np.ndarray) -> np.ndarray:
+        """y as drawn: scaled and offset, and with settle_ref set, log10 of
+        the residual about it, floored."""
+        linear = self.linear_y(np.asarray(y, dtype=np.float64))
         if self.settle_ref is None:
-            return pts
+            return linear
+        return np.log10(np.maximum(np.abs(linear - self.settle_ref), self.settle_floor))
 
-        key = (id(self.points), self.y_scale, self.offset_x, self.offset_y,
-               self.settle_ref)
-        cache = self._settle_cache
-        if cache is not None and cache[0] == key:
-            return cache[1]
+    def display_span(self, low: np.ndarray, high: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """The least and the greatest of bins as drawn. A settle view of a
+        bin that straddles the reference reaches down to the floor."""
+        a = self.linear_y(np.asarray(low, dtype=np.float64))
+        b = self.linear_y(np.asarray(high, dtype=np.float64))
+        least, greatest = np.minimum(a, b), np.maximum(a, b)
+        if self.settle_ref is None:
+            return least, greatest
+        below, above = least - self.settle_ref, greatest - self.settle_ref
+        near = np.where((below <= 0.0) & (above >= 0.0), 0.0, np.minimum(np.abs(below), np.abs(above)))
+        far = np.maximum(np.abs(below), np.abs(above))
+        return (
+            np.log10(np.maximum(near, self.settle_floor)),
+            np.log10(np.maximum(far, self.settle_floor)),
+        )
 
-        residual = np.abs(pts[:, 1].astype(np.float64) - self.settle_ref)
-        positive = residual[residual > 0.0]
-        # zero residuals floored at half the smallest nonzero one; a trace that
-        # is exactly constant has no nonzero residual at all, and is a
-        # degenerate case to render at one code, not to raise from a paint path
-        floor = float(positive.min()) * 0.5 if positive.size else 1.0
+    def display_extent(self) -> tuple[float, float, float, float] | None:
+        """(x least, x greatest, y least, y greatest) of the whole source as drawn."""
+        extent = self.source.extent()
+        if extent is None:
+            return None
+        low, high = self.display_span(np.array([extent[2]]), np.array([extent[3]]))
+        return extent[0] + self.offset_x, extent[1] + self.offset_x, float(low[0]), float(high[0])
 
-        out = np.empty_like(pts, dtype=np.float64)
-        out[:, 0] = pts[:, 0]
-        out[:, 1] = np.log10(np.maximum(residual, floor))
+    def records_in(self, xlim: tuple[float, float], limit: int) -> Records | None:
+        """Every point with display x in xlim, x as displayed and y as the
+        source has it; None when there are more than limit."""
+        x0, x1 = xlim[0] - self.offset_x, xlim[1] - self.offset_x
+        if self.source.count_between(x0, x1) > limit:
+            return None
+        taken = self.source.records(x0, x1)
+        x = taken.x + self.offset_x if self.offset_x != 0.0 else taken.x
+        return Records(x=np.asarray(x, dtype=np.float64), y=taken.y, color=taken.color)
 
-        self._settle_cache = (key, out)
-        return out
+    def count_in(self, xlim: tuple[float, float]) -> int:
+        return self.source.count_between(xlim[0] - self.offset_x, xlim[1] - self.offset_x)
 
-    def color_range(self) -> tuple[float, float]:
-        """Full-array (min, max) of color_data, cached."""
-        key = id(self.color_data)
-        if self._range_cache is None or self._range_cache[0] != key:
-            self._range_cache = (
-                key,
-                (float(self.color_data.min()), float(self.color_data.max())),
-            )
-        return self._range_cache[1]
-
-    def normalized_colors(
-        self,
-        idx: np.ndarray,
-        vmin: float,
-        vmax: float,
-    ) -> np.ndarray:
-        """color_data at idx mapped to [0, 1] over (vmin, vmax).
-
-        Only the points being drawn are normalized. The range follows the
-        view when the palette is fitted to it, so a full-length result would
-        be recomputed on every pan, and gathering first costs the same as
-        indexing a cached one.
-        """
-        span = vmax - vmin
-        if span > 0.0:
-            colors = self.color_data[idx].astype(np.float32, copy=False)
-            return (colors - vmin) / span
-        return np.full(len(idx), 0.5, dtype=np.float32)
+    def y_between(self, xlim: tuple[float, float]) -> tuple[float, float] | None:
+        """The least and the greatest y drawn with display x in xlim."""
+        moments = self.source.moments(xlim[0] - self.offset_x, xlim[1] - self.offset_x, 0)
+        if moments.count == 0:
+            return None
+        low, high = self.display_span(np.array([moments.low]), np.array([moments.high]))
+        return float(low[0]), float(high[0])

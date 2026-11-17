@@ -6,9 +6,9 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING
 
-import numpy as np
-
 from .AxisType import AxisType
+from .PlotSource import ANALYSIS_RECORDS
+from .PlotSource import Moments
 
 if TYPE_CHECKING:
     from .AxisSecondaryConfig import AxisSecondaryConfig
@@ -32,14 +32,15 @@ class ViewportStatsManager:
     Tracking lanes (logic lines) carry timing rather than magnitude and are
     excluded.
 
-    Nothing is computed unless it is going to be shown. The rows cost a pass
-    over every visible point of every visible plot, so with the panel off the
-    update returns before touching an array, and with it on a view change that
-    left the x window where it was reuses what it already has. The window
-    itself is taken with a binary search rather than a boolean mask wherever a
-    plot's x is sorted, which is every plot whose x is a sample index or a
-    time: a mask allocates and scans the whole array to find a span that two
-    lookups locate.
+    Each plot's source answers for its window: the count, sum and spread of
+    its points there and their extremes, from which every number in a row
+    follows, and their median when there are few enough to take one. A
+    source too long to hold answers from what it keeps of itself, so a row
+    costs the same whatever the window.
+
+    Nothing is computed unless it is going to be shown: with the panel off
+    the update returns before asking, and with it on a view change that left
+    the x window where it was reuses what it already has.
     """
 
     BASE_BOTTOM = 0.12  # matches the Plot2D subplots_adjust default
@@ -105,22 +106,9 @@ class ViewportStatsManager:
         self._cache_key = None
         self._cache_rows = None
 
-    def _window(self, plot, xlim: tuple[float, float]) -> np.ndarray:
-        """The plot's y values inside the x window.
-
-        Sorted x is the common case and the cheap one: two searches instead of
-        a full comparison and a full gather.
-        """
-        points = plot.points
-        x = points[:, 0]
-        lo = xlim[0] - plot.offset_x
-        hi = xlim[1] - plot.offset_x
-        if plot.x_ascending:
-            start = int(np.searchsorted(x, lo, side="left"))
-            stop = int(np.searchsorted(x, hi, side="right"))
-            return points[start:stop, 1].astype(np.float64, copy=False)
-        keep = (x >= lo) & (x <= hi)
-        return points[keep, 1].astype(np.float64, copy=False)
+    def _moments(self, plot, xlim: tuple[float, float]) -> Moments:
+        """The plot's raw values inside the x window."""
+        return plot.source.moments(xlim[0] - plot.offset_x, xlim[1] - plot.offset_x, ANALYSIS_RECORDS)
 
     def restyle(self) -> None:
         if self._text is not None:
@@ -144,21 +132,24 @@ class ViewportStatsManager:
     def _row(
         self,
         name: str,
-        y: np.ndarray,
+        moments: Moments,
+        scale: float,
+        offset: float,
         config: AxisSecondaryConfig | None,
         adc_pp: float | None,
     ) -> str:
-        n = int(y.size)
+        """One plot's row, its raw moments taken through y' = scale * y + offset."""
+        n = moments.count
         if n == 0:
             return f"{name}: N=0"
 
-        y_min = float(y.min())
-        y_max = float(y.max())
+        ends = (moments.low * scale + offset, moments.high * scale + offset)
+        y_min, y_max = min(ends), max(ends)
         pp = y_max - y_min
-        mean = float(y.mean())
-        median = float(np.median(y))
-        sd = float(y.std())
-        rms = float(math.sqrt(np.mean(np.square(y))))
+        mean = moments.total / n * scale + offset
+        median = None if moments.median is None else moments.median * scale + offset
+        sd = math.sqrt(moments.m2 / n) * abs(scale)
+        rms = math.hypot(mean, sd)
         peak = max(abs(y_min), abs(y_max))
 
         # DC signal-to-noise about the window mean; a flat trace is noiseless
@@ -175,6 +166,9 @@ class ViewportStatsManager:
         if config is not None:
             _, _, unit, factor = config.get_display_values(y_min, y_max)
         u = unit
+        # a median is taken of the values themselves, which a window of
+        # more than can be read at once does not have to hand
+        med = "-" if median is None else f"{median * factor:.5g}{u}"
 
         return (
             f"{name}: N={n}"
@@ -183,7 +177,7 @@ class ViewportStatsManager:
             f"  pp={pp * factor:.5g}{u}"
             f"{self._adc_pp_piece(adc_pp)}"
             f"  mean={mean * factor:.5g}{u}"
-            f"  med={median * factor:.5g}{u}"
+            f"  med={med}"
             f"  rms={rms * factor:.5g}{u}"
             f"  sd={sd * factor:.5g}{u}"
             f"  snr={snr:.4g}dB"
@@ -222,19 +216,17 @@ class ViewportStatsManager:
         rows: list[str] = []
         overflow = 0
         for index, plot in enumerate(self.viewer.plot_manager.get_all_plots()):
-            if not plot.visible or plot.viewport_track or len(plot.points) == 0:
+            if not plot.visible or plot.viewport_track or plot.count == 0:
                 continue
             if limit is not None and len(rows) == limit:
                 overflow += 1
                 continue
-            y = self._window(plot, xlim)
+            moments = self._moments(plot, xlim)
             adc_pp = None
-            if self.show_adc_pp and y.size:
-                adc_pp = float(y.max() - y.min())
-            if scale != 1.0 or offset != 0.0:
-                y = y * scale + offset
+            if self.show_adc_pp and moments.count:
+                adc_pp = moments.high - moments.low
             name = self.viewer.plot_manager.get_plot_name(index) or f"p{index}"
-            rows.append(self._row(name, y, config, adc_pp))
+            rows.append(self._row(name, moments, scale, offset, config, adc_pp))
         if overflow:
             rows.append(f"... +{overflow} more")
         return rows
@@ -251,15 +243,15 @@ class ViewportStatsManager:
         if not self.enabled:
             return
 
-        # the same window over the same plots is the same answer, and a view
-        # change that only moved y leaves both alone
+        # the same window over the same plots and sources is the same
+        # answer, and a view change that only moved y leaves both alone
         key = (
             xlim,
             self.show_adc_pp,
             self.adc_bits,
             self.header,
             tuple(
-                (id(plot), plot.visible, plot.offset_x)
+                (id(plot), id(plot.source), plot.visible, plot.offset_x)
                 for plot in self.viewer.plot_manager.get_all_plots()
             ),
         )

@@ -4,26 +4,25 @@
 """
 Array Field Manager
 
-Manages the relationship between structured arrays and their field plots.
-Each array can have multiple fields plotted from it, and this manager
-tracks which fields are active and their corresponding plot indices.
+Manages the relationship between tables and their field plots. Each table
+can have multiple fields plotted from it, and this manager tracks which
+fields are active and their corresponding plot indices.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import numpy as np
-
 if TYPE_CHECKING:
     from .PlotManager import PlotManager
+    from .PlotSource import Table
 
 
 class ArrayFieldManager:
     """
     Manages arrays and their associated field plots.
 
-    An "array" is a structured numpy array with multiple fields.
+    An "array" is a table: a structured array, or one read as it is drawn.
     Each array can have multiple fields plotted, and this manager
     tracks the relationship between arrays, fields, and plots.
     """
@@ -37,7 +36,7 @@ class ArrayFieldManager:
         """
         self.plot_manager = plot_manager
 
-        # Array tracking: array_index -> {'data': structured_array, 'x_field': str, 'name': str, 'properties': dict}
+        # Array tracking: array_index -> {'data': table, 'x_field': str, 'name': str, 'properties': dict}
         self.arrays: dict[int, dict] = {}
 
         # Field tracking: array_index -> {field_name: plot_index or None}
@@ -50,7 +49,7 @@ class ArrayFieldManager:
 
     def register_array(
         self,
-        data: np.ndarray,
+        data: Table,
         x_field: str,
         y_field: str,
         x_scale: float = 1.0,
@@ -58,10 +57,10 @@ class ArrayFieldManager:
         **properties,
     ) -> int:
         """
-        Register a structured array and its initial field plot.
+        Register a table and its initial field plot.
 
         Args:
-            data: Structured numpy array
+            data: The table
             x_field: Name of X-axis field
             y_field: Y-axis field to initially plot (single field)
             array_name: Optional custom name for the array
@@ -85,7 +84,7 @@ class ArrayFieldManager:
         }
 
         # Initialize field tracking for all fields in the array
-        field_names = [f for f in data.dtype.names if f != x_field]
+        field_names = [f for f in data.fields if f != x_field]
         self.array_fields[array_index] = {field: None for field in field_names}
 
         return array_index

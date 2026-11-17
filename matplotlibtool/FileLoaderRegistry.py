@@ -100,7 +100,7 @@ class FileLoaderRegistry:
         """
         return len(self.file_loaders) > 0
 
-    def load_files(self, file_paths: list[str]) -> list[np.ndarray]:
+    def load_files(self, file_paths: list[str]) -> list:
         """
         Load files using registered loaders.
 
@@ -108,7 +108,7 @@ class FileLoaderRegistry:
             file_paths: List of file paths to load
 
         Returns:
-            List of numpy arrays with loaded data
+            What each loader returned for its files: structured arrays or tables
 
         Raises:
             ValueError: If no loader is registered for a file extension

@@ -196,8 +196,7 @@ class ControlBarIntegration:
                 )
             )
             if array_info:
-                data = array_info["data"]
-                field_names = list(data.dtype.names)
+                field_names = list(array_info["data"].color_fields)
 
                 current_color_field = array_info["properties"].get("color_field")
 

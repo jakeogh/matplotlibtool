@@ -137,12 +137,7 @@ class PixelDCOverlay:
         if visible.size > MAX_VISIBLE_SEGMENTS:
             visible = visible[:: -(-visible.size // MAX_VISIBLE_SEGMENTS)]
 
-        y = self._dc * plot.y_scale + plot.offset_y
-        if plot.settle_ref is not None:
-            residual = np.abs(y - plot.settle_ref)
-            positive = residual[residual > 0.0]
-            floor = float(positive.min()) * 0.5 if positive.size else 1.0
-            y = np.log10(np.maximum(residual, floor))
+        y = plot.display_y(self._dc)
 
         segments = np.stack(
             [

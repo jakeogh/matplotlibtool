@@ -2,10 +2,8 @@
 # tab-width:4
 
 """
-Plot Data Processor - Shared logic for preparing plot data from structured arrays.
-
-This module extracts the common data processing logic previously duplicated between
-Plot2D.add_plot() and PlotGroupContext.add_plot().
+Plot Data Processor - one plot's source made from a table, the logic shared
+by Plot2D.add_plot() and PlotGroupContext.add_plot().
 """
 
 from __future__ import annotations
@@ -13,7 +11,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-import numpy as np
+from .PlotSource import Source
+from .PlotSource import StructuredTable
+from .PlotSource import Table
 
 if TYPE_CHECKING:
     from .Plot2D import Plot2D
@@ -23,8 +23,7 @@ if TYPE_CHECKING:
 class ProcessedPlotData:
     """Container for processed plot data ready for PlotManager."""
 
-    points: np.ndarray  # Transformed (N, 2) points
-    color_data: np.ndarray | None  # Extracted color values
+    source: Source
     x_field: str
     y_field: str
     color_field: str | None
@@ -39,24 +38,47 @@ class ProcessedPlotData:
     visible: bool
     plot_name: str | None
     transform_params: dict
-    original_data: np.ndarray  # Keep reference to original structured array
+    table: Table
 
 
 class PlotDataProcessor:
-    """Processes structured array data into format suitable for PlotManager."""
+    """Makes a plot's source from a table."""
 
     def __init__(self, viewer: Plot2D):
-        """
-        Initialize processor with reference to viewer.
-
-        Args:
-            viewer: The Plot2D viewer instance
-        """
         self.viewer = viewer
 
-    def process_structured_array(
+    def transform_for(
         self,
-        data: np.ndarray,
+        table: Table,
+        *,
+        x_field: str,
+        y_field: str,
+        x_scale: float,
+        normalize: bool,
+        center: bool,
+        transform_params: dict | None,
+    ) -> dict:
+        """The coordinate transform a plot is drawn through: the one given,
+        else one fitted to the points for normalize or center, else none.
+        Fitting one reads every point, so only a table held in memory can."""
+        if normalize and center:
+            raise ValueError("Cannot specify both normalize=True and center=True")
+        if transform_params is not None:
+            return transform_params.copy()
+        if not (normalize or center):
+            return {"type": "raw"}
+        if not isinstance(table, StructuredTable):
+            raise ValueError(
+                "normalize and center fit a transform to every point, and this table is read as it is drawn"
+            )
+        engine = self.viewer.transform_engine
+        points = table.points(x_field, y_field, x_scale)
+        fitted = engine.normalize_points(points) if normalize else engine.center_points(points)
+        return fitted[1].to_dict()
+
+    def process_table(
+        self,
+        table: Table,
         *,
         x_field: str,
         y_field: str,
@@ -75,137 +97,46 @@ class PlotDataProcessor:
         transform_params: dict | None = None,
         plot_name: str | None = None,
     ) -> ProcessedPlotData:
+        """One field of a table as a plot's source, with the viewer's
+        defaults for what was not given.
+
+        The x scale is folded into the source rather than carried as a
+        column, and the x offset is left to the overlay, which applies it
+        when it asks the source for a view.
         """
-        Process structured array into plot data.
-
-        Handles:
-        - Default resolution (colormap, draw_lines)
-        - Field validation
-        - Data extraction (x, y, color)
-        - Coordinate transformation (normalize/center/custom)
-        - Color data preparation
-
-        Args:
-            data: Structured numpy array with named fields
-            x_field: Name of field to use for X axis
-            y_field: Name of field to use for Y axis
-            color_field: Optional field to use for coloring
-            normalize: If True, normalize points to unit square
-            center: If True, center points at origin
-            x_offset: X offset for the plot
-            y_offset: Y offset for the plot
-            colormap: Colormap name (None = use viewer default)
-            point_size: Point size
-            draw_lines: Whether to draw lines (None = use viewer default)
-            line_color: Line color (None = use point colors)
-            line_width: Line width
-            visible: Whether plot is initially visible
-            transform_params: Optional custom transform parameters
-            plot_name: Optional custom name for the plot
-
-        Returns:
-            ProcessedPlotData ready for PlotManager.add_plot()
-
-        Raises:
-            TypeError: If data is not a structured numpy array
-            ValueError: If fields are invalid or conflicting options specified
-        """
-        # Apply viewer defaults if not specified
         if colormap is None:
             colormap = self.viewer.default_colormap
         if draw_lines is None:
             draw_lines = self.viewer.default_draw_lines
 
-        # Validate input - must be structured array
-        if not isinstance(data, np.ndarray):
-            raise TypeError("data must be a numpy array")
-
-        if data.dtype.names is None:
-            raise TypeError("data must be a structured array with named fields")
-
-        # Validate normalize/center combination
-        if normalize and center:
-            raise ValueError("Cannot specify both normalize=True and center=True")
-
-        field_names = data.dtype.names
-        if len(field_names) < 2:
+        # x is the table's to check: a table read as it is drawn has the one
+        # x, which is not among the fields drawn against it
+        if y_field not in table.fields:
+            raise ValueError(f"Y field '{y_field}' not found in data. Available: {table.fields}")
+        if color_field is not None and color_field not in table.color_fields:
             raise ValueError(
-                f"Structured array must have at least 2 fields. "
-                f"Found {len(field_names)}: {field_names}"
+                f"Color field '{color_field}' not found in data. Available: {table.color_fields}"
             )
 
-        # Validate x_field
-        if x_field not in field_names:
-            raise ValueError(
-                f"X field '{x_field}' not found in data. Available: {field_names}"
-            )
+        transform = self.transform_for(
+            table,
+            x_field=x_field,
+            y_field=y_field,
+            x_scale=x_scale,
+            normalize=normalize,
+            center=center,
+            transform_params=transform_params,
+        )
+        source = table.source(
+            x_field=x_field,
+            y_field=y_field,
+            color_field=color_field,
+            x_scale=x_scale,
+            transform=transform,
+        )
 
-        # Validate y_field
-        if y_field not in field_names:
-            raise ValueError(
-                f"Y field '{y_field}' not found in data. Available: {field_names}"
-            )
-
-        # Extract X and Y data. The scale is folded in here, where the column
-        # is being cast anyway, rather than materialised as a column of its
-        # own: widening a structured array to carry one more field rewrites
-        # every byte of it, and the column is read straight back out into
-        # these two and then discarded.
-        #
-        # Double precision, because x is a sample counter. A float32 carries
-        # twenty four bits of integer exactly, and a capture passes sample
-        # 16,777,216 eight seconds in; past it neighbouring samples round to
-        # one x and every spacing read off the plot is wrong. The scale only,
-        # never the offset: the offset belongs to the overlay, which applies
-        # it when culling.
-        column = data[x_field]
-        x_data = (column * x_scale if x_scale != 1.0 else column).astype(np.float64)
-        y_data = data[y_field].astype(np.float64)
-        points_xy = np.column_stack((x_data, y_data))
-
-        # Extract color data if specified
-        extracted_color_data = None
-        if color_field is not None:
-            if color_field not in field_names:
-                raise ValueError(
-                    f"Color field '{color_field}' not found in data. "
-                    f"Available: {field_names}"
-                )
-            extracted_color_data = data[color_field].astype(np.float32)
-
-        # Apply coordinate transformation
-        if transform_params is not None:
-            # Use provided transform parameters
-            from .CoordinateTransformEngine import TransformParams
-
-            transform_params_obj = TransformParams.from_dict(transform_params)
-            transformed_points = self.viewer.transform_engine.apply_transform(
-                points_xy, transform_params_obj
-            )
-            result_transform_params = transform_params.copy()
-        elif normalize:
-            # Normalize to unit square
-            transformed_points, params = self.viewer.transform_engine.normalize_points(
-                points_xy
-            )
-            result_transform_params = params.to_dict()
-        elif center:
-            # Center at origin
-            transformed_points, params = self.viewer.transform_engine.center_points(
-                points_xy
-            )
-            result_transform_params = params.to_dict()
-        else:
-            # Raw points (identity transform)
-            transformed_points, params = self.viewer.transform_engine.raw_points(
-                points_xy
-            )
-            result_transform_params = params.to_dict()
-
-        # Return processed data
         return ProcessedPlotData(
-            points=transformed_points,
-            color_data=extracted_color_data,
+            source=source,
             x_field=x_field,
             y_field=y_field,
             color_field=color_field,
@@ -219,6 +150,6 @@ class PlotDataProcessor:
             y_offset=y_offset,
             visible=visible,
             plot_name=plot_name,
-            transform_params=result_transform_params,
-            original_data=data,
+            transform_params=transform,
+            table=table,
         )

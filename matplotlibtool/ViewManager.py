@@ -86,19 +86,20 @@ class ViewManager:
 
     @staticmethod
     def compute_fit_bounds(
-        data_points: list[np.ndarray],
+        extents: list[tuple[float, float, float, float] | None],
         x_pad_ratio: float = X_PAD_RATIO,
         y_pad_ratio: float = Y_PAD_RATIO,
     ) -> ViewBounds | None:
-        """Bounds enclosing all points, padded. None if there are no points."""
-        nonempty = [p for p in data_points if p.size]
+        """Bounds enclosing every (x least, x greatest, y least, y greatest),
+        padded. None if there are none."""
+        nonempty = [extent for extent in extents if extent is not None]
         if not nonempty:
             return None
 
-        x_min = min(float(np.min(p[:, 0])) for p in nonempty)
-        x_max = max(float(np.max(p[:, 0])) for p in nonempty)
-        y_min = min(float(np.min(p[:, 1])) for p in nonempty)
-        y_max = max(float(np.max(p[:, 1])) for p in nonempty)
+        x_min = min(extent[0] for extent in nonempty)
+        x_max = max(extent[1] for extent in nonempty)
+        y_min = min(extent[2] for extent in nonempty)
+        y_max = max(extent[3] for extent in nonempty)
 
         x_range = (x_max - x_min) or 1.0
         y_range = (y_max - y_min) or 1.0

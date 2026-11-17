@@ -26,6 +26,9 @@ from .FFTAnalysis import OVERLAP
 from .FFTAnalysis import WINDOW
 from .FFTAnalysis import analyze_fft
 from .MouseMode import MouseMode
+from .PlotSource import ANALYSIS_RECORDS
+from .PlotSource import ArraySource
+from .PlotSource import Records
 from .SettleAnalysis import FLOOR_C
 from .SettleAnalysis import MIN_FIT_POINTS
 from .SettleAnalysis import SettleAnalysisArtists
@@ -51,6 +54,14 @@ class PixelDCCandidate:
     x_field: str
     x_scale: float
     data: np.ndarray
+
+
+def too_many(what: str, name: str, count: int) -> str:
+    """Why an analysis of a view was not run."""
+    return (
+        f"{what}: {name} has {count:,} points in view, more than the "
+        f"{ANALYSIS_RECORDS:,} an analysis reads; zoom in"
+    )
 
 
 class PlotEventHandlers:
@@ -237,6 +248,18 @@ class PlotEventHandlers:
 
         with self.viewer.busy_manager.busy_operation("Saving data"):
             rows = 0
+            # every plot's window read before the file is opened, so a view
+            # too wide to save leaves no partial file behind
+            taken_by_plot: list[tuple[int, str, object, Records]] = []
+            for i, plot in enumerate(pm.plots):
+                if not plot.visible or plot.count == 0:
+                    continue
+                name = pm.get_plot_name(i) or f"plot{i}"
+                taken = plot.records_in(xlim, ANALYSIS_RECORDS)
+                if taken is None:
+                    print(f"[INFO] {too_many('save data', name, plot.count_in(xlim))}")
+                    return
+                taken_by_plot.append((i, name, plot, taken))
             with filepath.open("w") as handle:
                 handle.write(f"# saved: {datetime.now().isoformat()}\n")
                 handle.write(f"# x_window: {float(xlim[0]):.10g} {float(xlim[1]):.10g}\n")
@@ -257,11 +280,11 @@ class PlotEventHandlers:
                         f"{cfg.scale!r} * y + {cfg.offset!r}\n"
                     )
                 tracked = [
-                    (pm.get_plot_name(i) or f"plot{i}", plot)
-                    for i, plot in enumerate(pm.plots)
-                    if plot.viewport_track and plot.visible and len(plot.points) > 0
+                    (name, plot, taken)
+                    for _, name, plot, taken in taken_by_plot
+                    if plot.viewport_track
                 ]
-                gpio_names = [name for name, _ in tracked]
+                gpio_names = [name for name, _, _ in tracked]
                 columns = "plot,x,y,color"
                 if gpio_names:
                     columns += "," + ",".join(gpio_names)
@@ -273,22 +296,15 @@ class PlotEventHandlers:
                         "# gpio columns hold each line's raw level at the row's "
                         "x; nan where the line has no sample at that x\n"
                     )
-                    for _, tplot in tracked:
-                        order = np.argsort(tplot.points[:, 0], kind="stable")
-                        gpio_lookup.append(
-                            (tplot.points[order, 0], tplot.points[order, 1])
-                        )
+                    for _, tplot, taken in tracked:
+                        order = np.argsort(taken.x, kind="stable")
+                        gpio_lookup.append((taken.x[order], taken.y[order]))
 
-                for i, plot in enumerate(pm.plots):
+                for i, name, plot, taken in taken_by_plot:
                     if plot.viewport_track:
                         # logic lines ride as columns on every row instead
                         continue
-                    if not plot.visible or len(plot.points) == 0:
-                        continue
-                    name = pm.get_plot_name(i) or f"plot{i}"
-                    x = plot.points[:, 0] + plot.offset_x
-                    mask = (x >= xlim[0]) & (x <= xlim[1])
-                    n = int(mask.sum())
+                    n = int(taken.x.size)
                     if n == 0:
                         continue
                     handle.write(
@@ -296,24 +312,21 @@ class PlotEventHandlers:
                         f"offset_x={plot.offset_x!r} offset_y={plot.offset_y!r} "
                         f"settle_ref={plot.settle_ref!r}\n"
                     )
-                    sel = plot.points[mask]
-                    if plot.color_data is None:
-                        color = np.full(n, np.nan)
-                    else:
-                        color = np.asarray(plot.color_data)[mask]
+                    raw_x = taken.x - plot.offset_x
+                    color = np.full(n, np.nan) if taken.color is None else taken.color
                     if gpio_lookup:
-                        rx = sel[:, 0]
+                        rx = taken.x
                         gpio_cols = []
                         for gx, gy in gpio_lookup:
                             idx = np.clip(np.searchsorted(gx, rx), 0, len(gx) - 1)
                             vals = gy[idx].astype(np.float64)
                             vals[gx[idx] != rx] = np.nan
                             gpio_cols.append(vals)
-                        for k, ((px, py), pc) in enumerate(zip(sel, color)):
+                        for k, (px, py, pc) in enumerate(zip(raw_x, taken.y, color)):
                             extra = "".join(f",{c[k]:.10g}" for c in gpio_cols)
                             handle.write(f"{name},{px:.10g},{py:.10g},{pc:.10g}{extra}\n")
                     else:
-                        for (px, py), pc in zip(sel, color):
+                        for px, py, pc in zip(raw_x, taken.y, color):
                             handle.write(f"{name},{px:.10g},{py:.10g},{pc:.10g}\n")
                     rows += n
 
@@ -355,30 +368,31 @@ class PlotEventHandlers:
         if enabled:
             xlim = self.viewer.view_manager.get_current_bounds().xlim
             for i, plot in enumerate(self.viewer.plot_manager.plots):
-                if not plot.visible or len(plot.points) == 0:
+                if not plot.visible or plot.count == 0:
                     plot.settle_ref = None
                     continue
 
-                lin = plot.points[:, 1] * plot.y_scale + plot.offset_y
-                x = plot.points[:, 0] + plot.offset_x
-                idx = np.flatnonzero((x >= xlim[0]) & (x <= xlim[1]))
                 name = self.viewer.plot_manager.get_plot_name(i) or f"Plot {i + 1}"
-                if idx.size < 16:
+                taken = plot.records_in(xlim, ANALYSIS_RECORDS)
+                if taken is None:
+                    raise SettleAnalysisError(too_many("settle mode", name, plot.count_in(xlim)))
+                if taken.x.size < 16:
                     raise SettleAnalysisError(
-                        f"settle mode: {name} has {idx.size} samples in view, "
+                        f"settle mode: {name} has {taken.x.size} samples in view, "
                         f"need >= 16 to estimate a settled reference"
                     )
+                lin = plot.linear_y(taken.y)
 
                 # reuse the converged reference so the markers stay aligned
                 # when flipping between the linear and settle views
                 if self._last_analysis is not None and self._last_analysis[0] == i:
-                    plot.settle_ref = self._last_analysis[1].y_final
+                    plot.settle_on(self._last_analysis[1].y_final, lin)
                     print(f"[INFO] Settle ref {name}: {plot.settle_ref:.6g} (analysis)")
                     continue
 
-                idx = idx[np.argsort(plot.points[idx, 0], kind="stable")]
-                tail = idx[-max(16, idx.size // 10) :]
-                plot.settle_ref = float(lin[tail].mean())
+                order = np.argsort(taken.x, kind="stable")
+                tail = order[-max(16, order.size // 10) :]
+                plot.settle_on(float(lin[tail].mean()), lin)
                 print(
                     f"[INFO] Settle ref {name}: {plot.settle_ref:.6g} "
                     f"({tail.size} tail samples)"
@@ -541,11 +555,11 @@ class PlotEventHandlers:
         name = pm.get_plot_name(plot_index) or f"Plot {plot_index + 1}"
 
         xlim = self.viewer.view_manager.get_current_bounds().xlim
-        seg = analyze_settle(
-            plot.points[:, 0] + plot.offset_x,
-            plot.points[:, 1] * plot.y_scale + plot.offset_y,
-            xlim,
-        )
+        taken = plot.records_in(xlim, ANALYSIS_RECORDS)
+        if taken is None:
+            raise SettleAnalysisError(too_many("settle analysis", name, plot.count_in(xlim)))
+        lin = plot.linear_y(taken.y)
+        seg = analyze_settle(taken.x, lin, xlim)
         self._last_analysis = (plot_index, seg)
 
         fmt = x_formatter(self.viewer.sample_rate_hz)
@@ -574,7 +588,7 @@ class PlotEventHandlers:
 
         self._report_pole_fit(seg, fmt)
 
-        plot.settle_ref = seg.y_final
+        plot.settle_on(seg.y_final, lin)
         self.viewer.control_bar_manager.set_settle_checked(True)
         self.viewer.view_manager.secondary_axis_manager.set_residual_mode(True)
         self._set_settle_axis_label(True)
@@ -615,10 +629,13 @@ class PlotEventHandlers:
         name = pm.get_plot_name(plot_index) or f"Plot {plot_index + 1}"
 
         xlim = self.viewer.view_manager.get_current_bounds().xlim
+        taken = plot.records_in(xlim, ANALYSIS_RECORDS)
+        if taken is None:
+            raise FFTAnalysisError(too_many("fft", name, plot.count_in(xlim)))
         with self.viewer.busy_manager.busy_operation("FFT"):
             res = analyze_fft(
-                plot.points[:, 0] + plot.offset_x,
-                plot.points[:, 1] * plot.y_scale + plot.offset_y,
+                taken.x,
+                plot.linear_y(taken.y),
                 xlim,
                 self.viewer.sample_rate_hz,
                 self.viewer.y_unit_scale,
@@ -768,17 +785,17 @@ class PlotEventHandlers:
         spec = res.spectrum
 
         plot = self.viewer.plot_manager.plots[self._fft_plot_index]
-        plot.points = np.column_stack((spec.frequencies, spec.db)).astype(
-            np.float64
+        plot.source = ArraySource(
+            np.column_stack((spec.frequencies, spec.db)).astype(np.float64)
         )
         array_index = self.viewer.array_field_integration.array_index_for_plot(
             self._fft_plot_index
         )
-        data = self.viewer.array_field_integration.array_field_manager.get_array_info(
+        table = self.viewer.array_field_integration.array_field_manager.get_array_info(
             array_index
         )["data"]
-        data["frequency"] = spec.frequencies
-        data["asd"] = spec.asd
+        table.array["frequency"] = spec.frequencies
+        table.array["asd"] = spec.asd
 
         color = "white" if self.viewer.dark_mode else "black"
         self.viewer.ax.set_xlabel(f"frequency [{unit}]", color=color)
@@ -990,8 +1007,7 @@ class PlotEventHandlers:
             if not plots[plot_index].visible or plots[plot_index].viewport_track:
                 continue
             info = manager.get_array_info(array_index)
-            data = info["data"]
-            if data.dtype.names is None or "pixel" not in data.dtype.names:
+            if "pixel" not in info["data"].color_fields:
                 continue
             candidates.append(
                 PixelDCCandidate(
@@ -999,10 +1015,40 @@ class PlotEventHandlers:
                     value_field=field,
                     x_field=info["x_field"],
                     x_scale=info["x_scale"],
-                    data=data,
+                    data=self._table_window(plot_index, "pixel dc"),
                 )
             )
         return candidates
+
+    def _table_window(self, plot_index: int, what: str) -> np.ndarray:
+        """The records behind a plot, every column: the whole table when
+        no more than an analysis reads, else those in view."""
+        integration = self.viewer.array_field_integration
+        array_index, _ = integration.array_field_manager.plot_to_array_field[plot_index]
+        info = integration.array_field_manager.get_array_info(array_index)
+        plot = self.viewer.plot_manager.plots[plot_index]
+        table = info["data"]
+        whole = table.window(
+            x_field=info["x_field"],
+            x_scale=info["x_scale"],
+            x0=-math.inf,
+            x1=math.inf,
+            limit=ANALYSIS_RECORDS,
+        )
+        if whole is not None:
+            return whole
+        xlim = self.viewer.view_manager.get_current_bounds().xlim
+        shown = table.window(
+            x_field=info["x_field"],
+            x_scale=info["x_scale"],
+            x0=xlim[0] - plot.offset_x,
+            x1=xlim[1] - plot.offset_x,
+            limit=ANALYSIS_RECORDS,
+        )
+        if shown is None:
+            name = self.viewer.plot_manager.get_plot_name(plot_index) or f"Plot {plot_index + 1}"
+            raise PixelAnalysisError(too_many(what, name, plot.count_in(xlim)))
+        return shown
 
     def recompute_pixel_dc(self) -> bool:
         """
@@ -1085,9 +1131,8 @@ class PlotEventHandlers:
                 "pixel analysis: this plot has no source array, so it carries no "
                 "pixel or frame fields"
             )
-        array_index, value_field = mapping
-        info = integration.array_field_manager.get_array_info(array_index)
-        return plot_index, value_field, info["data"]
+        _, value_field = mapping
+        return plot_index, value_field, self._table_window(plot_index, "pixel analysis")
 
     def on_pixels(self) -> None:
         """Dwell-domain analysis of the selected plot's source array."""
@@ -1390,83 +1435,48 @@ class PlotEventHandlers:
             else:
                 plot_indices = [self.viewer.plot_manager.selected_plot_index]
 
-            # group selection: shared color range across all member plots
-            global_color_min = None
-            global_color_max = None
+            integration = self.viewer.array_field_integration
+            manager = integration.array_field_manager
+            plot_manager = self.viewer.plot_manager
 
-            if self.viewer.plot_manager.is_group_selected():
-                for plot_index in plot_indices:
-                    array_index = (
-                        self.viewer.array_field_integration.array_index_for_plot(
-                            plot_index
-                        )
-                    )
-                    if array_index is None:
-                        continue
-
-                    array_info = self.viewer.array_field_integration.array_field_manager.get_array_info(
-                        array_index
-                    )
-                    if not array_info:
-                        continue
-
-                    data = array_info["data"]
-                    if field_name not in data.dtype.names:
-                        continue
-
-                    field_data = data[field_name].astype(np.float32)
-                    if len(field_data) > 0:
-                        local_min = float(field_data.min())
-                        local_max = float(field_data.max())
-
-                        if global_color_min is None:
-                            global_color_min = local_min
-                            global_color_max = local_max
-                        else:
-                            global_color_min = min(global_color_min, local_min)
-                            global_color_max = max(global_color_max, local_max)
-
+            rebuilt: list[tuple[int, object, dict]] = []
             for plot_index in plot_indices:
-                array_index = (
-                    self.viewer.array_field_integration.array_index_for_plot(
-                        plot_index
-                    )
-                )
-                if array_index is None:
+                mapping = manager.plot_to_array_field.get(plot_index)
+                if mapping is None:
                     print(f"[WARNING] Could not find array for plot {plot_index}")
                     continue
-
-                array_info = self.viewer.array_field_integration.array_field_manager.get_array_info(
-                    array_index
+                array_index, y_field = mapping
+                array_info = manager.get_array_info(array_index)
+                table = array_info["data"]
+                if field_name not in table.color_fields:
+                    print(f"[ERROR] Field '{field_name}' not found in array {array_index}")
+                    continue
+                source = table.source(
+                    x_field=array_info["x_field"],
+                    y_field=y_field,
+                    color_field=field_name,
+                    x_scale=array_info["x_scale"],
+                    transform=array_info["properties"]["transform_params"],
                 )
-                if not array_info:
-                    print(f"[WARNING] Could not get array info for array {array_index}")
-                    continue
+                rebuilt.append((plot_index, source, array_info))
 
-                data = array_info["data"]
-                if field_name not in data.dtype.names:
-                    print(
-                        f"[ERROR] Field '{field_name}' not found in array {array_index}"
-                    )
-                    continue
+            # a group shares one colour range across its members, where
+            # every member's is known
+            spans = [source.color_span() for _, source, _ in rebuilt]
+            shared = None
+            if plot_manager.is_group_selected() and spans and all(span is not None for span in spans):
+                shared = (min(span[0] for span in spans), max(span[1] for span in spans))
 
-                plot = self.viewer.plot_manager.plots[plot_index]
-                plot.color_data = data[field_name].astype(np.float32)
-                array_info["properties"]["color_field"] = field_name
-
-                if global_color_min is not None and global_color_max is not None:
-                    self.viewer.plot_manager.plot_global_color_ranges[plot_index] = (
-                        global_color_min,
-                        global_color_max,
-                    )
-                    array_info["properties"]["global_color_min"] = global_color_min
-                    array_info["properties"]["global_color_max"] = global_color_max
+            for (plot_index, source, array_info), span in zip(rebuilt, spans):
+                color_range = shared if shared is not None else span
+                plot_manager.replace_plot_source(plot_index, source, color_range)
+                properties = array_info["properties"]
+                properties["color_field"] = field_name
+                if color_range is None:
+                    properties.pop("global_color_min", None)
+                    properties.pop("global_color_max", None)
                 else:
-                    self.viewer.plot_manager.plot_global_color_ranges.pop(
-                        plot_index, None
-                    )
-                    array_info["properties"].pop("global_color_min", None)
-                    array_info["properties"].pop("global_color_max", None)
+                    properties["global_color_min"], properties["global_color_max"] = color_range
 
             self.viewer._update_plot()
             self.viewer.canvas.draw_idle()

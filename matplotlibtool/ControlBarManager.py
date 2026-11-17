@@ -261,10 +261,10 @@ class ControlBarManager:
                     custom_name = plot_manager.plot_names.get(plot_index, None)
 
                     if custom_name:
-                        plot_label = f"  └─ {custom_name} ({len(plot.points):,} pts)"
+                        plot_label = f"  └─ {custom_name} ({plot.count:,} pts)"
                     else:
                         plot_label = (
-                            f"  └─ Plot {plot_index + 1} ({len(plot.points):,} pts)"
+                            f"  └─ Plot {plot_index + 1} ({plot.count:,} pts)"
                         )
 
                     combo.addItem(plot_label)
@@ -285,9 +285,9 @@ class ControlBarManager:
                 custom_name = plot_manager.plot_names.get(plot_index, None)
 
                 if custom_name:
-                    plot_label = f"{custom_name} ({len(plot.points):,} pts)"
+                    plot_label = f"{custom_name} ({plot.count:,} pts)"
                 else:
-                    plot_label = f"Plot {plot_index + 1} ({len(plot.points):,} pts)"
+                    plot_label = f"Plot {plot_index + 1} ({plot.count:,} pts)"
 
                 combo.addItem(plot_label)
                 combo.setItemData(current_index, ("plot", plot_index))
