@@ -65,6 +65,7 @@ class ControlBarIntegration:
             "analyzeToggled": self.viewer.event_handlers.on_analyze_toggled,
             "fftRequested": self.viewer.event_handlers.on_fft,
             "pixelsRequested": self.viewer.event_handlers.on_pixels,
+            "plateauRequested": self.viewer.event_handlers.on_plateau,
             "pixelDcToggled": self.viewer.event_handlers.on_pixel_dc_toggled,
             "gpioToggled": self.viewer.event_handlers.on_gpio_toggled,
             "autocolorToggled": self.viewer.event_handlers.on_autocolor_toggled,

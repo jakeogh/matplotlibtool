@@ -982,7 +982,64 @@ class PlotEventHandlers:
             f"{window} ({source}{settled}) of {overlay.dwell_length} records, "
             f"{len(overlay._dc):,} dwells"
         )
+        if overlay.windows is not None:
+            print(f"[INFO] Pixel DC: {value_field}: {overlay.windows.plateau_words()}")
         return overlay
+
+    def on_plateau(self) -> None:
+        """Each dwell's plateau against its pixel, every plot carrying the
+        DC overlay a plot of its own, coloured by the step into the dwell,
+        in a window of its own: how level each pixel's averaging window
+        lies. The overlay is switched on first when it is not."""
+        try:
+            if not self._pixel_dc:
+                self._apply_pixel_dc(True)
+                self.viewer.control_bar_manager.set_pixel_dc_checked(True)
+        except PixelAnalysisError as exc:
+            print(f"[INFO] {exc}")
+            self._apply_pixel_dc(False)
+            self.viewer.control_bar_manager.set_pixel_dc_checked(False)
+            return
+        self._open_plateau_window()
+
+    def _open_plateau_window(self) -> None:
+        from .Plot2D import Plot2D   # deferred: Plot2D imports this module
+
+        # its points are dwells, not records: no dwell of them has a DC
+        window = Plot2D(auto_aspect=True, dark_mode=self.viewer.dark_mode, embedded=True, pixel_dc=False)
+        window.save_beside = self.viewer.source_file or self.viewer.save_beside
+        names = []
+        for plot_index, overlay in sorted(self._pixel_dc.items()):
+            windows = overlay.windows
+            if windows is None:
+                continue
+            name = self.viewer.plot_manager.get_plot_name(plot_index) or f"Plot {plot_index + 1}"
+            table = np.zeros(
+                windows.plateau.size,
+                dtype=[("pixel", np.float64), ("plateau_pct", np.float64), ("step", np.float64)],
+            )
+            table["pixel"] = windows.pixel
+            table["plateau_pct"] = windows.plateau * 100.0
+            # a dwell with no step before it is coloured as no step
+            table["step"] = np.nan_to_num(windows.step, nan=0.0)
+            window.add_plot(
+                table,
+                x_field="pixel",
+                y_field="plateau_pct",
+                color_field="step",
+                colormap="coolwarm",
+                plot_name=f"{name} plateau",
+            )
+            window_words = "rest of dwell" if overlay.length is None else f"length {overlay.length}"
+            names.append(f"{name} (start {overlay.start}, {window_words})")
+            print(f"[INFO] Plateau: {name}: {windows.plateau_words()}")
+        window.setWindowTitle(f"Plateau: {', '.join(names)}")
+        color = "white" if window.dark_mode else "black"
+        window.ax.set_xlabel("pixel; colour the step into the dwell, blue down, red up", color=color)
+        window.ax.set_ylabel("plateau [%]: 100 level, 0 the window climbs the whole step", color=color)
+        window.show()
+        window.raise_()
+        window.activateWindow()
 
     def _pixel_dc_candidates(self) -> list[PixelDCCandidate]:
         """(plot index, value field, x field, source array) for every visible

@@ -12,7 +12,6 @@ from PyQt6.QtWidgets import QCheckBox
 from PyQt6.QtGui import QIntValidator
 from PyQt6.QtWidgets import QComboBox
 from PyQt6.QtWidgets import QDoubleSpinBox
-from PyQt6.QtWidgets import QHBoxLayout
 from PyQt6.QtWidgets import QLabel
 from PyQt6.QtWidgets import QLineEdit
 from PyQt6.QtWidgets import QPushButton
@@ -20,6 +19,7 @@ from PyQt6.QtWidgets import QVBoxLayout
 from PyQt6.QtWidgets import QWidget
 
 from .AxisSecondaryConfig import AxisSecondaryConfig
+from .FlowLayout import FlowLayout
 
 
 class ControlBarSignals(QObject):
@@ -58,6 +58,7 @@ class ControlBarSignals(QObject):
     analyzeToggled = pyqtSignal(bool)
     fftRequested = pyqtSignal()
     pixelsRequested = pyqtSignal()
+    plateauRequested = pyqtSignal()
     pixelDcToggled = pyqtSignal(bool)
     gpioToggled = pyqtSignal(bool)
     autocolorToggled = pyqtSignal(bool)
@@ -314,14 +315,15 @@ class ControlBarManager:
     def _create_row1(self) -> QWidget:
         """Create first control row: Add, Plot/Group selector, Visible, Accel, Size, Lines, Palette, Color Field."""
         row = QWidget()
-        layout = QHBoxLayout(row)
+        # wraps onto a second line rather than squeezing a control or
+        # pushing one past the right edge when the window is narrow
+        layout = FlowLayout(row)
         layout.setContentsMargins(
             8,
             4,
             8,
             4,
         )
-        layout.setSpacing(8)
 
         add_btn = QPushButton("Add…")
         add_btn.setMaximumWidth(60)
@@ -420,7 +422,6 @@ class ControlBarManager:
         layout.addWidget(color_field_combo)
         self.widgets["color_field_combo"] = color_field_combo
 
-        layout.addStretch()
         return row
 
     def _on_color_field_changed(self, field_name: str):
@@ -505,14 +506,15 @@ class ControlBarManager:
     def _create_row2(self) -> QWidget:
         """Create second control row: Grid controls."""
         row = QWidget()
-        layout = QHBoxLayout(row)
+        # wraps onto a second line rather than squeezing a control or
+        # pushing one past the right edge when the window is narrow
+        layout = FlowLayout(row)
         layout.setContentsMargins(
             8,
             4,
             8,
             4,
         )
-        layout.setSpacing(8)
 
         layout.addWidget(QLabel("Axes Grid:"))
         axes_grid_btn = QPushButton("Pick")
@@ -643,20 +645,20 @@ class ControlBarManager:
         layout.addWidget(status_label)
         self.widgets["status_label"] = status_label
 
-        layout.addStretch()
         return row
 
     def _create_row3(self) -> QWidget:
         """Create third control row: View bounds, offset controls, palette in view."""
         row = QWidget()
-        layout = QHBoxLayout(row)
+        # wraps onto a second line rather than squeezing a control or
+        # pushing one past the right edge when the window is narrow
+        layout = FlowLayout(row)
         layout.setContentsMargins(
             8,
             4,
             8,
             4,
         )
-        layout.setSpacing(8)
 
         fit_view_btn = QPushButton("Fit View")
         fit_view_btn.setMaximumWidth(80)
@@ -687,20 +689,20 @@ class ControlBarManager:
         layout.addWidget(palette_view_chk)
         self.widgets["palette_view_chk"] = palette_view_chk
 
-        layout.addStretch()
         return row
 
     def _create_secondary_axis_row(self) -> QWidget:
         """Create fourth control row: Secondary Y-axis configuration."""
         row = QWidget()
-        layout = QHBoxLayout(row)
+        # wraps onto a second line rather than squeezing a control or
+        # pushing one past the right edge when the window is narrow
+        layout = FlowLayout(row)
         layout.setContentsMargins(
             8,
             4,
             8,
             4,
         )
-        layout.setSpacing(8)
 
         layout.addWidget(QLabel("Rate:"))
         rate_edit = QLineEdit()
@@ -787,7 +789,8 @@ class ControlBarManager:
         pixel_dc_chk.setToolTip(
             "Draw the value the averager would report for each pixel as a "
             "horizontal line across that pixel's dwell, using the window "
-            "measured from the capture."
+            "measured from the capture, and, zoomed in to where the samples "
+            "are points, the samples it averaged in the line's colour."
         )
         # unchecked until the viewer says otherwise: choosing the window fits
         # the settling curve of every array, and a caller that does not want
@@ -796,6 +799,23 @@ class ControlBarManager:
         pixel_dc_chk.toggled.connect(self.signals.pixelDcToggled.emit)
         layout.addWidget(pixel_dc_chk)
         self.widgets["pixel_dc_chk"] = pixel_dc_chk
+
+        plateau_btn = QPushButton("Plateau")
+        plateau_btn.setToolTip(
+            "How level each pixel's averaging window lies, its plateau, "
+            "against the pixel, in a new window, coloured by the step into "
+            "the dwell: blue down, red up. The plateau is 100% when the "
+            "window's samples lie at one height and 0% when a straight line "
+            "through them climbs as far, across the window, as the dwell "
+            "moves at all: the window standing on the transition like a "
+            "vertical line. A line rather than the samples' spread, so the "
+            "noise of a settled level does not count against it. Switches "
+            "DC on, whose windows it measures, and prints the median, the "
+            "lowest tenth, and the medians stepped into up and down."
+        )
+        plateau_btn.clicked.connect(self.signals.plateauRequested.emit)
+        layout.addWidget(plateau_btn)
+        self.widgets["plateau_btn"] = plateau_btn
 
         gpio_chk = QCheckBox("GPIO")
         gpio_chk.setToolTip(
@@ -937,8 +957,6 @@ class ControlBarManager:
         apply_btn.setEnabled(False)
         layout.addWidget(apply_btn)
         self.secondary_axis_widgets["apply"] = apply_btn
-
-        layout.addStretch()
 
         clock_label = QLabel("")
         clock_label.setStyleSheet("font-family: monospace;")

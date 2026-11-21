@@ -11,6 +11,14 @@ the value is readable straight off the plot. It answers the question the
 settle analysis raises but cannot show: whether the window that was measured
 actually lands on the level a human would call the pixel value.
 
+The averaged samples themselves are drawn over the plot's own in the segment's
+colour, once the view is close enough that the plot draws its samples as
+points, so zoomed in it is plain which samples the value came from.
+
+Each dwell's plateau is measured beside its level: how level the window's
+samples lie, 1 when they sit at one height and 0 when they climb the dwell's
+whole swing, the averager's own measure (iioparser.plateau_of).
+
 The levels are computed once when the overlay is enabled and re-culled to the
 view on every render, so a capture with more dwells than the screen has pixels
 still costs only the segments that are visible.
@@ -18,7 +26,10 @@ still costs only the segments that are visible.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import numpy as np
+from iioparser import plateau_of
 from matplotlib.collections import LineCollection
 
 from .PixelAnalysis import PixelAnalysisError
@@ -29,6 +40,55 @@ DC_COLOR = "#ffffff"
 DC_COLOR_LIGHT = "#000000"
 DC_LINE_WIDTH = 1.4
 MAX_VISIBLE_SEGMENTS = 20000
+# the averaged samples are drawn only while there are no more than this many
+# in view: past it they would paint the trace over in one colour
+MAX_WINDOW_POINTS = 20000
+
+
+@dataclass(frozen=True)
+class DwellWindows:
+    """Every record's x as drawn and its value; and by dwell, its window as
+    record indices, the first and one past the last, its pixel, its plateau,
+    and the step into it from the dwell before when that dwell was averaged
+    too, NaN when it was not."""
+
+    x: np.ndarray
+    value: np.ndarray
+    lo: np.ndarray
+    hi: np.ndarray
+    pixel: np.ndarray
+    plateau: np.ndarray
+    step: np.ndarray
+
+    def plateau_words(self) -> str:
+        """The plateaus as one line: their median, the tenth of dwells at
+        the bottom, the lowest and its pixel, and the medians of the dwells
+        stepped into upward and downward among the larger half of the steps,
+        which part a readout that slews one way slower than the other."""
+        plateau = self.plateau
+        good = np.isfinite(plateau)
+        if not good.any():
+            return "plateau: no window holds two records, so none slopes"
+        values = plateau[good]
+        lowest = int(np.flatnonzero(good)[np.argmin(values)])
+        words = (
+            f"plateau: median {np.median(values) * 100:.1f}%, a tenth of dwells below "
+            f"{np.percentile(values, 10) * 100:.1f}%, lowest {plateau[lowest] * 100:.1f}% "
+            f"(pixel {self.pixel[lowest]})"
+        )
+        stepped = good & np.isfinite(self.step)
+        if stepped.any():
+            size = np.abs(self.step[stepped])
+            large = np.zeros_like(good)
+            large[stepped] = size >= np.median(size)
+            rising, falling = large & (self.step > 0), large & (self.step < 0)
+            if rising.any() and falling.any():
+                words += (
+                    f"; the larger half of the steps, up into the dwell "
+                    f"{np.median(plateau[rising]) * 100:.1f}%, down "
+                    f"{np.median(plateau[falling]) * 100:.1f}%"
+                )
+        return words
 
 
 class PixelDCOverlay:
@@ -37,9 +97,11 @@ class PixelDCOverlay:
     def __init__(self, ax):
         self.ax = ax
         self._collection: LineCollection | None = None
+        self._points = None
         self._x0: np.ndarray | None = None
         self._x1: np.ndarray | None = None
         self._dc: np.ndarray | None = None
+        self.windows: DwellWindows | None = None
         self.start = 0
         self.length: int | None = None  # None averages the rest of each dwell
         self.dwell_length = 0
@@ -54,7 +116,11 @@ class PixelDCOverlay:
         if self._collection is not None:
             self._collection.remove()
             self._collection = None
+        if self._points is not None:
+            self._points.remove()
+            self._points = None
         self._x0 = self._x1 = self._dc = None
+        self.windows = None
 
     def compute(
         self,
@@ -125,6 +191,20 @@ class PixelDCOverlay:
         x = data[x_field].astype(np.float64) * x_scale
         self._x0 = x[s + start]
         self._x1 = x[stop - 1]
+        # the step is from the dwell just before, read straight before this
+        # one: the transition the window is settling from
+        step = np.full(self._dc.size, np.nan)
+        follows = np.flatnonzero(s[1:] == e[:-1]) + 1
+        step[follows] = self._dc[follows] - self._dc[follows - 1]
+        self.windows = DwellWindows(
+            x=x,
+            value=value,
+            lo=s + start,
+            hi=stop,
+            pixel=data[pixel_field][s].astype(np.int64),
+            plateau=plateau_of(value, s, e, start=start, length=length),
+            step=step,
+        )
 
     def update(self, xlim: tuple[float, float], plot) -> None:
         """Redraw the segments that fall inside xlim, in the plot's display space."""
@@ -157,6 +237,27 @@ class PixelDCOverlay:
             self._collection.set_segments(segments)
             self._collection.set_color(color)
         self._collection.set_visible(True)
+        if self.windows is not None:
+            self._update_points(self.windows, visible, plot, color)
+
+    def _update_points(self, windows: DwellWindows, visible: np.ndarray, plot, color: str) -> None:
+        """The averaged samples of the dwells in view, over the plot's own
+        and at their size, while the plot draws its samples as points."""
+        counts = windows.hi[visible] - windows.lo[visible]
+        drawn_as_points = plot.scatter_artist is not None and plot.scatter_artist.get_visible()
+        if not drawn_as_points or int(counts.sum()) > MAX_WINDOW_POINTS:
+            if self._points is not None:
+                self._points.set_visible(False)
+            return
+        index = np.repeat(windows.lo[visible] - np.cumsum(counts) + counts, counts) + np.arange(int(counts.sum()))
+        offsets = np.column_stack((windows.x[index] + plot.offset_x, plot.display_y(windows.value[index])))
+        if self._points is None:
+            self._points = self.ax.scatter(offsets[:, 0], offsets[:, 1], s=plot.size, c=color, linewidths=0, zorder=850)
+        else:
+            self._points.set_offsets(offsets)
+            self._points.set_sizes([plot.size])
+            self._points.set_facecolors(color)
+        self._points.set_visible(True)
 
 
 def _is_dark(ax) -> bool:
